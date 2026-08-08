@@ -1,0 +1,319 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG 问答 Demo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <div class="app">
+    <!-- ========== 左侧边栏 ========== -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>📚 RAG Demo</h1>
+        <p class="subtitle">基于检索增强生成的 AI 问答系统</p>
+      </div>
+
+      <!-- 状态面板 -->
+      <div class="status-panel">
+        <h3>⚙ 系统状态</h3>
+        <div id="status-info" class="status-items">加载中…</div>
+      </div>
+
+      <!-- 文档上传 -->
+      <div class="section">
+        <h3>📄 上传文档</h3>
+        <div class="upload-area" id="upload-area">
+          <span class="upload-icon">📂</span>
+          <p>点击选择文件<br><small>支持 .txt / .md，最大 5 MB</small></p>
+          <input type="file" id="file-input" accept=".txt,.md" hidden />
+        </div>
+        <button class="btn btn-secondary" id="upload-btn" style="display:none">确认上传</button>
+      </div>
+
+      <!-- 粘贴文本 -->
+      <div class="section">
+        <h3>✏️ 粘贴文本</h3>
+        <textarea id="paste-text" placeholder="在此粘贴要入库的文本内容…"></textarea>
+        <button class="btn btn-primary" id="paste-btn">入库</button>
+      </div>
+
+      <!-- 快捷操作 -->
+      <div class="section">
+        <h3>🔧 操作</h3>
+        <button class="btn btn-danger" id="clear-history-btn">🗑 清空对话历史</button>
+      </div>
+
+      <div class="sidebar-footer">
+        <small>Flask + LangChain + ChromaDB</small>
+      </div>
+    </aside>
+
+    <!-- ========== 右侧主内容 ========== -->
+    <main class="main">
+      <div class="chat-container" id="chat-container">
+        <!-- 欢迎消息 -->
+        <div class="welcome-card">
+          <div class="welcome-icon">🤖</div>
+          <h2>你好，我是 RAG 问答助手</h2>
+          <p>在下方输入问题，我会基于已上传的文档为你检索并生成回答。</p>
+          <div class="suggestions">
+            <button class="chip" onclick="fillQuestion('人工智能的发展历程是怎样的？')">
+              人工智能的发展历程是怎样的？
+            </button>
+            <button class="chip" onclick="fillQuestion('什么是图灵测试？')">
+              什么是图灵测试？
+            </button>
+            <button class="chip" onclick="fillQuestion('深度学习革命始于什么时候？')">
+              深度学习革命始于什么时候？
+            </button>
+            <button class="chip" onclick="fillQuestion('AI 安全与对齐面临哪些挑战？')">
+              AI 安全与对齐面临哪些挑战？
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 输入框 -->
+      <div class="input-bar">
+        <input
+          type="text"
+          id="question-input"
+          placeholder="输入你的问题，按 Enter 发送…"
+          autocomplete="off"
+        />
+        <button class="btn btn-send" id="send-btn">发送</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- ========== 提示弹窗 ========== -->
+  <div id="toast-container"></div>
+
+  <!-- ========== JavaScript ========== -->
+  <script>
+    // ---- DOM 元素引用 ----
+    const uploadArea    = document.getElementById('upload-area');
+    const fileInput    = document.getElementById('file-input');
+    const uploadBtn    = document.getElementById('upload-btn');
+    const pasteText    = document.getElementById('paste-text');
+    const pasteBtn     = document.getElementById('paste-btn');
+    const questionInput = document.getElementById('question-input');
+    const sendBtn      = document.getElementById('send-btn');
+    const chatContainer = document.getElementById('chat-container');
+    const clearHistoryBtn = document.getElementById('clear-history-btn');
+    const statusInfo   = document.getElementById('status-info');
+    const toastContainer = document.getElementById('toast-container');
+
+    // ---- 当前选中的文件 ----
+    let selectedFile = null;
+
+    // ---- Toast 提示 ----
+    function showToast(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `toast toast-${type}`;
+      div.textContent = message;
+      toastContainer.appendChild(div);
+      setTimeout(() => div.classList.add('toast-out'), 100);
+      setTimeout(() => div.remove(), 3000);
+    }
+
+    // ---- 辅助：构建对话气泡 ----
+    function createMessageBubble(role, content) {
+      const wrapper = document.createElement('div');
+      wrapper.className = `msg-bubble ${role}`;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = role === 'user' ? '👤' : '🤖';
+
+      const body = document.createElement('div');
+      body.className = 'msg-body';
+      body.innerHTML = `<div class="msg-role">${role === 'user' ? '你' : '助手'}</div>`
+                    + `<div class="msg-text">${escHtml(content)}</div>`;
+
+      wrapper.appendChild(avatar);
+      wrapper.appendChild(body);
+      return wrapper;
+    }
+
+    function escHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML.replace(/\n/g, '<br>');
+    }
+
+    // ---- 辅助：滚动到底部 ----
+    function scrollToBottom() {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // ---- 辅助：移除欢迎卡 ----
+    function removeWelcome() {
+      const w = document.querySelector('.welcome-card');
+      if (w) w.remove();
+    }
+
+    // ---- 发送问题 ----
+    async function sendQuestion() {
+      const question = questionInput.value.trim();
+      if (!question) return;
+
+      removeWelcome();
+      chatContainer.appendChild(createMessageBubble('user', question));
+      questionInput.value = '';
+      scrollToBottom();
+
+      sendBtn.disabled = true;
+      sendBtn.textContent = '…';
+
+      try {
+        const resp = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question }),
+        });
+        const data = await resp.json();
+        const answer = data.answer || data.message || '服务器未返回有效回答。';
+        chatContainer.appendChild(createMessageBubble('assistant', answer));
+        scrollToBottom();
+      } catch (e) {
+        showToast('网络错误：' + e.message, 'error');
+        chatContainer.appendChild(
+          createMessageBubble('assistant', '❌ 请求失败，请检查后端服务是否启动。')
+        );
+        scrollToBottom();
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '发送';
+      }
+    }
+
+    // ---- 填充示例问题 ----
+    function fillQuestion(q) {
+      questionInput.value = q;
+      questionInput.focus();
+    }
+
+    // ---- 系统状态 ----
+    async function loadStatus() {
+      try {
+        const resp = await fetch('/api/status');
+        const d = await resp.json();
+        const items = [
+          { label: 'API 配置',  ok: d.api_configured },
+          { label: 'LLM 模型',  ok: d.llm_ready },
+          { label: 'Embedding', ok: d.embeddings_ready },
+          { label: '向量库',    ok: d.vectorstore_ready },
+        ];
+        statusInfo.innerHTML = items.map(it =>
+          `<div class="status-item">
+            <span class="dot ${it.ok ? 'dot-green' : 'dot-red'}"></span>
+            <span>${it.label}</span>
+            <span class="status-badge ${it.ok ? 'badge-ok' : 'badge-err'}">
+              ${it.ok ? '✓ 就绪' : '未就绪'}
+            </span>
+          </div>`
+        ).join('');
+      } catch (e) {
+        statusInfo.innerHTML = '<div class="status-item"><span class="dot dot-red"></span>无法连接后端</div>';
+      }
+    }
+
+    // ---- 文件上传流程 ----
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+      selectedFile = fileInput.files[0];
+      if (selectedFile) {
+        uploadArea.querySelector('p').innerHTML =
+          `已选择：<strong>${selectedFile.name}</strong>`;
+        uploadBtn.style.display = 'inline-block';
+      }
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = '上传中…';
+
+      try {
+        const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          showToast(`✅ ${data.message}`, 'success');
+          uploadArea.querySelector('p').innerHTML =
+            '<span class="upload-icon">📂</span><p>点击选择文件<br><small>支持 .txt / .md，最大 5 MB</small></p>';
+          uploadBtn.style.display = 'none';
+          fileInput.value = '';
+          selectedFile = null;
+          loadStatus();
+        } else {
+          showToast('❌ ' + data.message, 'error');
+        }
+      } catch (e) {
+        showToast('上传失败：' + e.message, 'error');
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = '确认上传';
+      }
+    });
+
+    // ---- 粘贴文本入库 ----
+    pasteBtn.addEventListener('click', async () => {
+      const text = pasteText.value.trim();
+      if (!text) { showToast('请先粘贴文本内容。', 'error'); return; }
+
+      pasteBtn.disabled = true;
+      pasteBtn.textContent = '入库中…';
+
+      try {
+        const resp = await fetch('/api/paste', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          showToast(`✅ ${data.message}`, 'success');
+          pasteText.value = '';
+          loadStatus();
+        } else {
+          showToast('❌ ' + data.message, 'error');
+        }
+      } catch (e) {
+        showToast('入库失败：' + e.message, 'error');
+      } finally {
+        pasteBtn.disabled = false;
+        pasteBtn.textContent = '入库';
+      }
+    });
+
+    // ---- 清空历史 ----
+    clearHistoryBtn.addEventListener('click', async () => {
+      await fetch('/api/clear', { method: 'POST' });
+      chatContainer.innerHTML = `
+        <div class="welcome-card">
+          <div class="welcome-icon">🗑</div>
+          <h2>对话已清空</h2>
+          <p>可以开始新的对话了。</p>
+        </div>`;
+      showToast('对话历史已清空。', 'info');
+    });
+
+    // ---- 事件绑定 ----
+    sendBtn.addEventListener('click', sendQuestion);
+    questionInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+    });
+
+    // ---- 初始化 ----
+    loadStatus();
+    setInterval(loadStatus, 30_000);   // 每 30 秒刷新一次状态
+  </script>
+</body>
+</html>
