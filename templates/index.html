@@ -1,578 +1,819 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RAG 问答 Demo</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
-  <style>
-    /* 多轮对话上下文徽章 */
-    .context-badge {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      background: #e8f4fd;
-      border: 1px solid #b3d9f7;
-      color: #1565c0;
-      border-radius: 20px;
-      padding: 4px 14px;
-      font-size: 0.82rem;
-      margin: 6px auto 0;
-      width: fit-content;
-    }
-    .context-badge .ctx-icon {
-      font-size: 1rem;
-    }
-  </style>
-</head>
-<body>
-  <div class="app">
-    <!-- ========== 左侧边栏 ========== -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <h1>📚 RAG Demo</h1>
-        <p class="subtitle">基于检索增强生成的 AI 问答系统</p>
-      </div>
-
-      <!-- 状态面�?-->
-      <div class="status-panel">
-        <h3>�?系统状�?/h3>
-        <div id="status-info" class="status-items">加载中�?/div>
-      </div>
-
-      <!-- 文档上传 -->
-      <div class="section">
-        <h3>📄 上传文档</h3>
-        <div class="upload-area" id="upload-area">
-          <span class="upload-icon">📁</span>
-          <p>点击选择文件<br><small>支持 .txt / .md，最�?5 MB</small></p>
-          <input type="file" id="file-input" accept=".txt,.md,.pdf" hidden />
-        </div>
-        <button class="btn btn-secondary" id="upload-btn" style="display:none">确认上传</button>
-      </div>
-
-      <!-- 粘贴文本 -->
-      <div class="section">
-        <h3>�?粘贴文本</h3>
-        <textarea id="paste-text" placeholder="在此粘贴要入库的文本内容�?></textarea>
-        <button class="btn btn-primary" id="paste-btn">入库</button>
-      </div>
-
-      <!-- �?新增：文档管理面�?-->
-      <div class="section doc-mgmt-section">
-        <h3>📂 文档管理</h3>
-        <div id="doc-list" class="doc-list">
-          <p class="doc-empty">加载中�?/p>
-        </div>
-        <button class="btn btn-secondary" id="refresh-docs-btn" style="margin-top:8px">🔄 刷新列表</button>
-      </div>
-
-      <!-- 快捷操作 -->
-      <div class="section">
-        <h3>�?操作</h3>
-        <button class="btn btn-danger" id="clear-history-btn">🗑 清空对话历史</button>
-      </div>
-
-      <div class="sidebar-footer">
-        <small>Flask + LangChain + ChromaDB</small>
-      </div>
-    </aside>
-
-    <!-- ========== 右侧主内�?========== -->
-    <main class="main">
-      <div class="chat-container" id="chat-container">
-        <!-- 欢迎消息 -->
-        <div class="welcome-card">
-          <div class="welcome-icon">🤖</div>
-          <h2>你好，我�?RAG 问答助手</h2>
-          <p>在下方输入问题，我会基于已上传的文档为你检索并生成回答�?</p>
-          
-          <!-- multi-turn context badge -->
-          <div id="context-badge" class="context-badge" style="display:none">
-            <span class="ctx-icon">🔗</span>
-            <span id="ctx-text">已加载上下文</span>
-          </div>
-          
-          <div class="suggestions"><div class="suggestions">
-            <button class="chip" onclick="fillQuestion('人工智能的发展历程是怎样的？')">
-              人工智能的发展历程是怎样的？
-            </button>
-            <button class="chip" onclick="fillQuestion('什么是图灵测试�?)">
-              什么是图灵测试�?            </button>
-            <button class="chip" onclick="fillQuestion('深度学习革命始于什么时候？')">
-              深度学习革命始于什么时候？
-            </button>
-            <button class="chip" onclick="fillQuestion('AI 安全与对齐面临哪些挑战？')">
-              AI 安全与对齐面临哪些挑战？
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 输入�?-->
-      <div class="input-bar">
-        <input
-          type="text"
-          id="question-input"
-          placeholder="输入你的问题，按 Enter 发送�?
-          autocomplete="off"
-        />
-        <button class="btn btn-send" id="send-btn">发�?/button>
-      </div>
-    </main>
-  </div>
-
-  <!-- ========== 提示弹窗 ========== -->
-  <div id="toast-container"></div>
-
-  <!-- ========== JavaScript ========== -->
-  <script>
-    // ---- DOM 元素引用 ----
-    const uploadArea      = document.getElementById('upload-area');
-    const fileInput       = document.getElementById('file-input');
-    const uploadBtn       = document.getElementById('upload-btn');
-    const pasteText       = document.getElementById('paste-text');
-    const pasteBtn        = document.getElementById('paste-btn');
-    const questionInput   = document.getElementById('question-input');
-    const sendBtn         = document.getElementById('send-btn');
-    const chatContainer   = document.getElementById('chat-container');
-    const clearHistoryBtn = document.getElementById('clear-history-btn');
-    const statusInfo      = document.getElementById('status-info');
-    const toastContainer  = document.getElementById('toast-container');
-    const docList         = document.getElementById('doc-list');
-    const refreshDocsBtn  = document.getElementById('refresh-docs-btn');
-
-    // ---- 当前选中的文�?----
-    let selectedFile = null;
-
-    // ================================================================
-    // Toast 提示
-    // ================================================================
-    function showToast(message, type = 'info') {
-      const div = document.createElement('div');
-      div.className = `toast toast-${type}`;
-      div.textContent = message;
-      toastContainer.appendChild(div);
-      setTimeout(() => div.classList.add('toast-out'), 100);
-      setTimeout(() => div.remove(), 3000);
-    }
-
-    // ================================================================
-    // 辅助：HTML 转义
-    // ================================================================
-    function escHtml(text) {
-      const d = document.createElement('div');
-      d.textContent = text;
-      return d.innerHTML.replace(/\n/g, '<br>');
-    }
-
-    // ================================================================
-    // 辅助：滚动到底部
-    // ================================================================
-    function scrollToBottom() {
-      chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
-
-    // ================================================================
-    // 辅助：移除欢迎卡
-    // ================================================================
-    function removeWelcome() {
-      const w = document.querySelector('.welcome-card');
-      if (w) w.remove();
-    }
-
-    // ================================================================
-    // 构建对话气泡（普通版�?    // ================================================================
-    function createMessageBubble(role, content) {
-      const wrapper = document.createElement('div');
-      wrapper.className = `msg-bubble ${role}`;
-
-      const avatar = document.createElement('div');
-      avatar.className = 'avatar';
-      avatar.textContent = role === 'user' ? '👤' : '🤖';
-
-      const body = document.createElement('div');
-      body.className = 'msg-body';
-      body.innerHTML = `<div class="msg-role">${role === 'user' ? '�? : '助手'}</div>`
-                    + `<div class="msg-text">${escHtml(content)}</div>`;
-
-      wrapper.appendChild(avatar);
-      wrapper.appendChild(body);
-      return wrapper;
-    }
-
-    // ================================================================
-    // 构建助手气泡容器（流式用，逐步追加内容 + 引用来源�?    // ================================================================
-    function createAssistantBubble() {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'msg-bubble assistant';
-
-      const avatar = document.createElement('div');
-      avatar.className = 'avatar';
-      avatar.textContent = '🤖';
-
-      const body = document.createElement('div');
-      body.className = 'msg-body';
-
-      const roleEl = document.createElement('div');
-      roleEl.className = 'msg-role';
-      roleEl.textContent = '助手';
-
-      const textEl = document.createElement('div');
-      textEl.className = 'msg-text';
-
-      body.appendChild(roleEl);
-      body.appendChild(textEl);
-      wrapper.appendChild(avatar);
-      wrapper.appendChild(body);
-      return { wrapper, textEl };
-    }
-
-    // ================================================================
-    // 构建引用来源展示区块
-    // ================================================================
-    function createSourcesBlock(sources) {
-      const block = document.createElement('div');
-      block.className = 'sources-block';
-
-      const header = document.createElement('div');
-      header.className = 'sources-header';
-      header.innerHTML = `<span class="sources-icon">📌</span><span>参考来�?/span>`
-                       + `<span class="sources-toggle">�?展开</span>`;
-      header.addEventListener('click', () => {
-        const list = block.querySelector('.sources-list');
-        const isOpen = list.style.display !== 'none';
-        list.style.display = isOpen ? 'none' : 'block';
-        header.querySelector('.sources-toggle').textContent = isOpen ? '�?展开' : '�?收起';
-      });
-
-      const list = document.createElement('div');
-      list.className = 'sources-list';
-      list.style.display = 'none';
-
-      sources.forEach(src => {
-        const item = document.createElement('div');
-        item.className = 'source-item';
-        const title = document.createElement('div');
-        title.className = 'source-title';
-        title.textContent = `📄 ${src.file}  #${src.idx}`;
-        const snippet = document.createElement('div');
-        snippet.className = 'source-snippet';
-        snippet.textContent = src.text;
-        item.appendChild(title);
-        item.appendChild(snippet);
-        list.appendChild(item);
-      });
-
-      block.appendChild(header);
-      block.appendChild(list);
-      return block;
-    }
-
-    // ================================================================
-    // 填充示例问题
-    // ================================================================
-    function fillQuestion(q) {
-      questionInput.value = q;
-      questionInput.focus();
-    }
-
-    // ================================================================
-    // 系统状�?    // ================================================================
-    async function loadStatus() {
-      try {
-        const resp = await fetch('/api/status');
-        const d = await resp.json();
-        const items = [
-          { label: 'API 配置',  ok: d.api_configured },
-          { label: 'LLM 模型',  ok: d.llm_ready },
-          { label: 'Embedding', ok: d.embeddings_ready },
-          { label: '向量�?,    ok: d.vectorstore_ready },
-        ];
-        statusInfo.innerHTML = items.map(it =>
-          `<div class="status-item">
-            <span class="dot ${it.ok ? 'dot-green' : 'dot-red'}"></span>
-            <span>${it.label}</span>
-            <span class="status-badge ${it.ok ? 'badge-ok' : 'badge-err'}">
-              ${it.ok ? '�?就绪' : '未就�?}
-            </span>
-          </div>`
-        ).join('');
-      } catch (e) {
-        statusInfo.innerHTML = '<div class="status-item"><span class="dot dot-red"></span>无法连接后端</div>';
-      }
-    }
-
-    // ================================================================
-    // �?文档管理：获取文档列�?    // ================================================================
-    async function loadDocuments() {
-      try {
-        const resp = await fetch('/api/documents');
-        const d = await resp.json();
-        if (d.status !== 'ok') {
-          docList.innerHTML = '<p class="doc-empty">加载失败</p>';
-          return;
-        }
-        const docs = d.documents || [];
-        if (docs.length === 0) {
-          docList.innerHTML = '<p class="doc-empty">向量库为空，请先上传文档�?/p>';
-          return;
-        }
-        docList.innerHTML = docs.map(doc => `
-          <div class="doc-item" data-filename="${escHtml(doc.filename)}">
-            <div class="doc-info">
-              <span class="doc-name" title="${escHtml(doc.filename)}">📄 ${escHtml(doc.filename)}</span>
-              <span class="doc-chunks">${doc.chunks} 个片�?/span>
-            </div>
-            <button class="btn btn-delete" onclick="deleteDoc('${escHtml(doc.filename).replace(/'/g, "\\'")}')">删除</button>
-          </div>
-        `).join('');
-      } catch (e) {
-        docList.innerHTML = '<p class="doc-empty">加载失败</p>';
-      }
-    }
-
-    // ================================================================
-    // �?文档管理：删除文�?    // ================================================================
-    async function deleteDoc(filename) {
-      if (!confirm(`确定要删除�?{filename}」吗？此操作不可恢复。`)) return;
-      try {
-        const resp = await fetch('/api/documents', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename }),
-        });
-        const d = await resp.json();
-        if (d.status === 'ok') {
-          showToast(d.message, 'success');
-          loadDocuments();
-          // ================================================================
-    // 加载对话上下文状态（有历史对话时显示"已加载上下文"提示）
-    // ================================================================
-    async function loadChatContextStatus() {
-      try {
-        const resp = await fetch('/api/history');
-        const d = await resp.json();
-        const history = d.history || [];
-        const badge = document.getElementById('context-badge');
-        const ctxText = document.getElementById('ctx-text');
-        if (history.length > 0 && badge && ctxText) {
-          const rounds = Math.floor(history.length / 2);
-          ctxText.textContent = '已加载 ' + rounds + ' 轮对话上下文';
-          badge.style.display = 'flex';
-        }
-      } catch (_) { /* 静默失败 */ }
-    }
-
-    loadStatus();
-        } else {
-          showToast('删除失败�? + d.message, 'error');
-        }
-      } catch (e) {
-        showToast('删除失败�? + e.message, 'error');
-      }
-    }
-
-    // ================================================================
-    // �?流式发送问�?    // ================================================================
-    async function sendQuestion() {
-      const question = questionInput.value.trim();
-      if (!question) return;
-
-      removeWelcome();
-
-      // 先创建助手气泡，文字为空（流式填充）
-      const { wrapper: bubble, textEl } = createAssistantBubble();
-      chatContainer.appendChild(bubble);
-      scrollToBottom();
-
-      sendBtn.disabled = true;
-      sendBtn.textContent = '�?;
-      questionInput.value = '';
-
-      try {
-        // 使用 ReadableStream 读取 SSE
-        const resp = await fetch('/api/chat-stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question }),
-        });
-
-        if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status}`);
-
-        }
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop();  // 最后一行可能不完整，留到下一�?
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const payload = line.slice(6).trim();
-            if (!payload) continue;
-
-            let event;
-            try { event = JSON.parse(payload); } catch (_) { continue; }
-
-            if (event.type === 'token') {
-              // 逐字追加回答内容
-              textEl.innerHTML += escHtml(event.content);
-              scrollToBottom();
-
-            } else if (event.type === 'sources') {
-              // 收到来源信息，挂到气泡下�?              const sourcesEl = createSourcesBlock(event.sources);
-              bubble.appendChild(sourcesEl);
-              scrollToBottom();
-
-            } else if (event.type === 'done') {
-              // 完成，保存到历史
-              const fullAnswer = textEl.textContent || textEl.innerText || '';
-              saveToHistory(question, fullAnswer);
-
-            } else if (event.type === 'error') {
-              showToast(event.message || '发生错误', 'error');
-            }
-          }
-        }
-
-      } catch (e) {
-        showToast('网络错误�? + e.message, 'error');
-        textEl.innerHTML = '⚠️ 请求失败，请检查后端服务是否启动�?;
-      } finally {
-        sendBtn.disabled = false;
-        sendBtn.textContent = '发�?;
-      }
-    }
-
-    // ================================================================
-    // 保存到对话历�?    // ================================================================
-    async function saveToHistory(question, answer) {
-      try {
-        await fetch('/api/history', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question, answer }),
-        });
-      } catch (_) { /* 静默失败 */ }
-    }
-
-    // ================================================================
-    // 文件上传流程
-    // ================================================================
-    uploadArea.addEventListener('click', () => fileInput.click());
-
-    fileInput.addEventListener('change', () => {
-      selectedFile = fileInput.files[0];
-      if (selectedFile) {
-        uploadArea.querySelector('p').innerHTML =
-          `已选择�?strong>${selectedFile.name}</strong>`;
-        uploadBtn.style.display = 'inline-block';
-      }
-    });
-
-    uploadBtn.addEventListener('click', async () => {
-      if (!selectedFile) return;
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      uploadBtn.disabled = true;
-      uploadBtn.textContent = '上传中�?;
-
-      try {
-        const resp = await fetch('/api/upload', { method: 'POST', body: formData });
-        const data = await resp.json();
-        if (data.status === 'ok') {
-          showToast(`�?${data.message}`, 'success');
-          uploadArea.querySelector('p').innerHTML =
-            '<span class="upload-icon">📁</span><p>点击选择文件<br><small>支持 .txt / .md，最�?5 MB</small></p>';
-          uploadBtn.style.display = 'none';
-          fileInput.value = '';
-          selectedFile = null;
-          loadStatus();
-          loadDocuments();
-        } else {
-          showToast('�?' + data.message, 'error');
-        }
-      } catch (e) {
-        showToast('上传失败�? + e.message, 'error');
-      } finally {
-        uploadBtn.disabled = false;
-        uploadBtn.textContent = '确认上传';
-      }
-    });
-
-    // ================================================================
-    // 粘贴文本入库
-    // ================================================================
-    pasteBtn.addEventListener('click', async () => {
-      const text = pasteText.value.trim();
-      if (!text) { showToast('请先粘贴文本内容�?, 'error'); return; }
-
-      pasteBtn.disabled = true;
-      pasteBtn.textContent = '入库中�?;
-
-      try {
-        const resp = await fetch('/api/paste', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
-        });
-        const data = await resp.json();
-        if (data.status === 'ok') {
-          showToast(`�?${data.message}`, 'success');
-          pasteText.value = '';
-          loadStatus();
-          loadDocuments();
-        } else {
-          showToast('�?' + data.message, 'error');
-        }
-      } catch (e) {
-        showToast('入库失败�? + e.message, 'error');
-      } finally {
-        pasteBtn.disabled = false;
-        pasteBtn.textContent = '入库';
-      }
-    });
-
-    // ================================================================
-    // 清空历史
-    // ================================================================
-    clearHistoryBtn.addEventListener('click', async () => {
-      await fetch('/api/clear', { method: 'POST' });
-      chatContainer.innerHTML = `
-        <div class="welcome-card">
-          <div class="welcome-icon">🤖</div>
-          <h2>对话已清�?/h2>
-          <p>可以开始新的对话了�?/p>
-        </div>`;
-      showToast('对话历史已清空�?, 'info');
-    });
-
-    // ================================================================
-    // 事件绑定
-    // ================================================================
-    sendBtn.addEventListener('click', sendQuestion);
-    questionInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
-    });
-
-    refreshDocsBtn.addEventListener('click', loadDocuments);
-
-    // ================================================================
-    // 初始�?    // ================================================================
-    loadStatus();
-    loadDocuments();
-    loadChatContextStatus();
-    setInterval(loadStatus, 30_000);
-  </script>
-</body>
-</html>
-
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG 问答 Demo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <style>
+    /* 多轮对话上下文徽章 */
+    .context-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #e8f4fd;
+      border: 1px solid #b3d9f7;
+      color: #1565c0;
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 0.82rem;
+      margin: 6px auto 0;
+      width: fit-content;
+    }
+    .context-badge .ctx-icon {
+      font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- ========== 左侧边栏 ========== -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>📚 RAG Demo</h1>
+        <p class="subtitle">基于检索增强生成的 AI 问答系统</p>
+      </div>
+
+            <!-- 设置面板 -->
+      <div class="settings-panel">
+        <div class="settings-header" id="settings-toggle">
+          <div class="settings-header-left">
+            <span>⚙️</span>
+            <span>设置</span>
+          </div>
+          <span class="settings-toggle-icon open" id="settings-arrow">▶</span>
+        </div>
+        <div class="settings-body" id="settings-body">
+          <div class="settings-field">
+            <label>API Key</label>
+            <div class="pwd-wrapper">
+              <input type="password" id="s-api-key" placeholder="sk-..." autocomplete="off" />
+              <button type="button" class="pwd-toggle" id="pwd-toggle" title="显示/隐藏">👁️</button>
+            </div>
+          </div>
+          <div class="settings-field">
+            <label>接口地址</label>
+            <input type="text" id="s-base-url" placeholder="https://api.openai.com/v1" />
+          </div>
+          <div class="settings-field">
+            <label>模型</label>
+            <select id="s-model">
+              <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+              <option value="gpt-4o">gpt-4o</option>
+              <option value="deepseek-chat">deepseek-chat</option>
+              <option value="qwen-turbo">qwen-turbo</option>
+              <option value="glm-4">glm-4</option>
+              <option value="__custom__">自定义...</option>
+            </select>
+            <input type="text" id="s-model-custom" placeholder="输入自定义模型名称" style="display:none;margin-top:6px;" />
+          </div>
+          <div class="settings-field">
+            <label>温度：<span id="s-temp-val">0.3</span></label>
+            <div class="temp-control">
+              <span style="font-size:.75rem;color:#6a829a;">0</span>
+              <input type="range" id="s-temperature" min="0" max="2" step="0.1" value="0.3" />
+              <span style="font-size:.75rem;color:#6a829a;">2</span>
+            </div>
+          </div>
+          <button class="btn btn-save-settings" id="save-settings-btn">💾 保存设置</button>
+          <p class="settings-hint">配置保存在 config.json（不会同步到 Git），同时会保存在浏览器 localStorage。</p>
+        </div>
+      </div>
+
+<!-- 状态面板-->
+      <div class="status-panel">
+        <h3>🔍 系统状态/h3>
+        <div id="status-info" class="status-items">加载中.../div>
+      </div>
+
+      <!-- 文档上传 -->
+      <div class="section">
+        <h3>📄 上传文档</h3>
+        <div class="upload-area" id="upload-area">
+          <span class="upload-icon">📁</span>
+          <p>点击选择文件<br><small>支持 .txt / .md，最大 5 MB</small></p>
+          <input type="file" id="file-input" accept=".txt,.md,.pdf" hidden />
+        </div>
+        <button class="btn btn-secondary" id="upload-btn" style="display:none">确认上传</button>
+      </div>
+
+      <!-- 粘贴文本 -->
+      <div class="section">
+        <h3>📝 粘贴文本</h3>
+        <textarea id="paste-text" placeholder="在此粘贴要入库的文本内容...></textarea>
+        <button class="btn btn-primary" id="paste-btn">入库</button>
+      </div>
+
+      <!-- 📂 新增：文档管理面板-->
+      <div class="section doc-mgmt-section">
+        <h3>📂 文档管理</h3>
+        <div id="doc-list" class="doc-list">
+          <p class="doc-empty">加载中.../p>
+        </div>
+        <button class="btn btn-secondary" id="refresh-docs-btn" style="margin-top:8px">🔄 刷新列表</button>
+      </div>
+
+      <!-- 快捷操作 -->
+      <div class="section">
+        <h3>⚡ 操作</h3>
+        <button class="btn btn-danger" id="clear-history-btn">🗑 清空对话历史</button>
+      </div>
+
+      <div class="sidebar-footer">
+        <small>Flask + LangChain + ChromaDB</small>
+      </div>
+    </aside>
+
+    <!-- ========== 右侧主内容========== -->
+    <main class="main">
+      <div class="chat-container" id="chat-container">
+        <!-- 欢迎消息 -->
+        <div class="welcome-card">
+          <div class="welcome-icon">🤖</div>
+          <h2>你好，我是 RAG 问答助手</h2>
+          <p>在下方输入问题，我会基于已上传的文档为你检索并生成回答...</p>
+          
+          <!-- multi-turn context badge -->
+          <div id="context-badge" class="context-badge" style="display:none">
+            <span class="ctx-icon">🔗</span>
+            <span id="ctx-text">已加载上下文</span>
+          </div>
+          
+          <div class="suggestions"><div class="suggestions">
+            <button class="chip" onclick="fillQuestion('人工智能的发展历程是怎样的？')">
+              人工智能的发展历程是怎样的？
+            </button>
+            <button class="chip" onclick="fillQuestion('什么是图灵测试？)">
+              什么是图灵测试？            </button>
+            <button class="chip" onclick="fillQuestion('深度学习革命始于什么时候？')">
+              深度学习革命始于什么时候？
+            </button>
+            <button class="chip" onclick="fillQuestion('AI 安全与对齐面临哪些挑战？')">
+              AI 安全与对齐面临哪些挑战？
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 输入框-->
+      <div class="input-bar">
+        <input
+          type="text"
+          id="question-input"
+          placeholder="输入你的问题，按 Enter 发送...
+          autocomplete="off"
+        />
+        <button class="btn btn-send" id="send-btn">发送/button>
+      </div>
+    </main>
+  </div>
+
+  <!-- ========== 提示弹窗 ========== -->
+  <div id="toast-container"></div>
+
+  <!-- ========== JavaScript ========== -->
+  <script>
+    // ---- DOM 元素引用 ----
+    const uploadArea      = document.getElementById('upload-area');
+    const fileInput       = document.getElementById('file-input');
+    const uploadBtn       = document.getElementById('upload-btn');
+    const pasteText       = document.getElementById('paste-text');
+    const pasteBtn        = document.getElementById('paste-btn');
+    const questionInput   = document.getElementById('question-input');
+    const sendBtn         = document.getElementById('send-btn');
+    const chatContainer   = document.getElementById('chat-container');
+    const clearHistoryBtn = document.getElementById('clear-history-btn');
+    const statusInfo      = document.getElementById('status-info');
+    const toastContainer  = document.getElementById('toast-container');
+    const docList         = document.getElementById('doc-list');
+    const refreshDocsBtn  = document.getElementById('refresh-docs-btn');
+
+    // ---- 当前选中的文档----
+    let selectedFile = null;
+
+        // ================================================================
+    // 设置面板
+    // ================================================================
+    const settingsToggle = document.getElementById('settings-toggle');
+    const settingsBody = document.getElementById('settings-body');
+    const settingsArrow = document.getElementById('settings-arrow');
+
+    if (settingsToggle) {
+      settingsToggle.addEventListener('click', () => {
+        const isOpen = settingsBody.style.display !== 'none';
+        settingsBody.style.display = isOpen ? 'none' : 'block';
+        settingsArrow.classList.toggle('open', !isOpen);
+      });
+    }
+
+    async function loadSettings() {
+      try {
+        const resp = await fetch('/api/settings');
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          const s = data.settings;
+          document.getElementById('s-api-key').value = s.api_key || '';
+          document.getElementById('s-base-url').value = s.base_url || '';
+          document.getElementById('s-temperature').value = s.temperature || 0.3;
+          document.getElementById('s-temp-val').textContent = s.temperature || 0.3;
+
+          const modelSelect = document.getElementById('s-model');
+          const modelCustom = document.getElementById('s-model-custom');
+          const presetModels = ['gpt-3.5-turbo', 'gpt-4o', 'deepseek-chat', 'qwen-turbo', 'glm-4'];
+          if (presetModels.includes(s.model_name)) {
+            modelSelect.value = s.model_name;
+            modelCustom.style.display = 'none';
+          } else if (s.model_name) {
+            modelSelect.value = '__custom__';
+            modelCustom.value = s.model_name;
+            modelCustom.style.display = 'block';
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load settings:', e);
+      }
+    }
+
+    document.getElementById('save-settings-btn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('save-settings-btn');
+      const originalText = btn.textContent;
+      btn.textContent = '保存中...';
+      btn.disabled = true;
+
+      try {
+        const modelSelect = document.getElementById('s-model');
+        const modelCustom = document.getElementById('s-model-custom');
+        const modelName = modelSelect.value === '__custom__'
+          ? modelCustom.value.trim()
+          : modelSelect.value;
+
+        const resp = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_key: document.getElementById('s-api-key').value,
+            base_url: document.getElementById('s-base-url').value,
+            model_name: modelName,
+            temperature: parseFloat(document.getElementById('s-temperature').value)
+          })
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          showToast('\u2705 设置已保存', 'success');
+        } else {
+          showToast('保存失败：' + data.message, 'error');
+        }
+      } catch (e) {
+        showToast('保存失败：' + e.message, 'error');
+      } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('s-temperature')?.addEventListener('input', (e) => {
+      document.getElementById('s-temp-val').textContent = e.target.value;
+    });
+
+    document.getElementById('s-model')?.addEventListener('change', (e) => {
+      document.getElementById('s-model-custom').style.display =
+        e.target.value === '__custom__' ? 'block' : 'none';
+    });
+
+    document.getElementById('pwd-toggle')?.addEventListener('click', () => {
+      const input = document.getElementById('s-api-key');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+
+    loadSettings();
+
+// ================================================================
+    // Toast 提示
+    // ================================================================
+    // ================================================================
+    // 设置面板
+    // ================================================================
+    const settingsToggle = document.getElementById('settings-toggle');
+    const settingsBody = document.getElementById('settings-body');
+    const settingsArrow = document.getElementById('settings-arrow');
+
+    if (settingsToggle) {
+      settingsToggle.addEventListener('click', () => {
+        const isOpen = settingsBody.style.display !== 'none';
+        settingsBody.style.display = isOpen ? 'none' : 'block';
+        settingsArrow.classList.toggle('open', !isOpen);
+      });
+    }
+
+    async function loadSettings() {
+      try {
+        const resp = await fetch('/api/settings');
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          const s = data.settings;
+          document.getElementById('s-api-key').value = s.api_key || '';
+          document.getElementById('s-base-url').value = s.base_url || '';
+          document.getElementById('s-temperature').value = s.temperature || 0.3;
+          document.getElementById('s-temp-val').textContent = s.temperature || 0.3;
+
+          const modelSelect = document.getElementById('s-model');
+          const modelCustom = document.getElementById('s-model-custom');
+          const presetModels = ['gpt-3.5-turbo', 'gpt-4o', 'deepseek-chat', 'qwen-turbo', 'glm-4'];
+          if (presetModels.includes(s.model_name)) {
+            modelSelect.value = s.model_name;
+            modelCustom.style.display = 'none';
+          } else if (s.model_name) {
+            modelSelect.value = '__custom__';
+            modelCustom.value = s.model_name;
+            modelCustom.style.display = 'block';
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load settings:', e);
+      }
+    }
+
+    document.getElementById('save-settings-btn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('save-settings-btn');
+      const originalText = btn.textContent;
+      btn.textContent = '保存中...';
+      btn.disabled = true;
+
+      try {
+        const modelSelect = document.getElementById('s-model');
+        const modelCustom = document.getElementById('s-model-custom');
+        const modelName = modelSelect.value === '__custom__'
+          ? modelCustom.value.trim()
+          : modelSelect.value;
+
+        const resp = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_key: document.getElementById('s-api-key').value,
+            base_url: document.getElementById('s-base-url').value,
+            model_name: modelName,
+            temperature: parseFloat(document.getElementById('s-temperature').value)
+          })
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          showToast('✅ 设置已保存', 'success');
+        } else {
+          showToast('保存失败：' + data.message, 'error');
+        }
+      } catch (e) {
+        showToast('保存失败：' + e.message, 'error');
+      } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('s-temperature')?.addEventListener('input', (e) => {
+      document.getElementById('s-temp-val').textContent = e.target.value;
+    });
+
+    document.getElementById('s-model')?.addEventListener('change', (e) => {
+      document.getElementById('s-model-custom').style.display =
+        e.target.value === '__custom__' ? 'block' : 'none';
+    });
+
+    document.getElementById('pwd-toggle')?.addEventListener('click', () => {
+      const input = document.getElementById('s-api-key');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+
+    loadSettings();
+
+    // ================================================================
+    // Toast 提示
+    // ================================================================
+    function showToast(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `toast toast-${type}`;
+      div.textContent = message;
+      toastContainer.appendChild(div);
+      setTimeout(() => div.classList.add('toast-out'), 100);
+      setTimeout(() => div.remove(), 3000);
+    }
+
+    // ================================================================
+    // 辅助：HTML 转义
+    // ================================================================
+    function escHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML.replace(/\n/g, '<br>');
+    }
+
+    // ================================================================
+    // 辅助：滚动到底部
+    // ================================================================
+    function scrollToBottom() {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // ================================================================
+    // 辅助：移除欢迎卡
+    // ================================================================
+    function removeWelcome() {
+      const w = document.querySelector('.welcome-card');
+      if (w) w.remove();
+    }
+
+    // ================================================================
+    // 构建对话气泡（普通版本    // ================================================================
+    function createMessageBubble(role, content) {
+      const wrapper = document.createElement('div');
+      wrapper.className = `msg-bubble ${role}`;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = role === 'user' ? '👤' : '🤖';
+
+      const body = document.createElement('div');
+      body.className = 'msg-body';
+      body.innerHTML = `<div class="msg-role">${role === 'user' ? ''👤' : '🤖'}</div>`
+                    + `<div class="msg-text">${escHtml(content)}</div>`;
+
+      wrapper.appendChild(avatar);
+      wrapper.appendChild(body);
+      return wrapper;
+    }
+
+    // ================================================================
+    // 构建助手气泡容器（流式用，逐步追加内容 + 引用展示    // ================================================================
+    function createAssistantBubble() {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'msg-bubble assistant';
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = '🤖';
+
+      const body = document.createElement('div');
+      body.className = 'msg-body';
+
+      const roleEl = document.createElement('div');
+      roleEl.className = 'msg-role';
+      roleEl.textContent = '助手';
+
+      const textEl = document.createElement('div');
+      textEl.className = 'msg-text';
+
+      body.appendChild(roleEl);
+      body.appendChild(textEl);
+      wrapper.appendChild(avatar);
+      wrapper.appendChild(body);
+      return { wrapper, textEl };
+    }
+
+    // ================================================================
+    // 构建引用来源展示区块
+    // ================================================================
+    function createSourcesBlock(sources) {
+      const block = document.createElement('div');
+      block.className = 'sources-block';
+
+      const header = document.createElement('div');
+      header.className = 'sources-header';
+      header.innerHTML = `<span class="sources-icon">📌</span><span>参考来源/span>`
+                       + `<span class="sources-toggle">▶ 展开</span>`;
+      header.addEventListener('click', () => {
+        const list = block.querySelector('.sources-list');
+        const isOpen = list.style.display !== 'none';
+        list.style.display = isOpen ? 'none' : 'block';
+        header.querySelector('.sources-toggle').textContent = isOpen ? '▶ 展开' : '▼ 收起';
+      });
+
+      const list = document.createElement('div');
+      list.className = 'sources-list';
+      list.style.display = 'none';
+
+      sources.forEach(src => {
+        const item = document.createElement('div');
+        item.className = 'source-item';
+        const title = document.createElement('div');
+        title.className = 'source-title';
+        title.textContent = `📄 ${src.file}  #${src.idx}`;
+        const snippet = document.createElement('div');
+        snippet.className = 'source-snippet';
+        snippet.textContent = src.text;
+        item.appendChild(title);
+        item.appendChild(snippet);
+        list.appendChild(item);
+      });
+
+      block.appendChild(header);
+      block.appendChild(list);
+      return block;
+    }
+
+    // ================================================================
+    // 填充示例问题
+    // ================================================================
+    function fillQuestion(q) {
+      questionInput.value = q;
+      questionInput.focus();
+    }
+
+    // ================================================================
+    // 系统状态    // ================================================================
+    async function loadStatus() {
+      try {
+        const resp = await fetch('/api/status');
+        const d = await resp.json();
+        const items = [
+          { label: 'API 配置',  ok: d.api_configured },
+          { label: 'LLM 模型',  ok: d.llm_ready },
+          { label: 'Embedding', ok: d.embeddings_ready },
+          { label: '向量库,    ok: d.vectorstore_ready },
+        ];
+        statusInfo.innerHTML = items.map(it =>
+          `<div class="status-item">
+            <span class="dot ${it.ok ? 'dot-green' : 'dot-red'}"></span>
+            <span>${it.label}</span>
+            <span class="status-badge ${it.ok ? 'badge-ok' : 'badge-err'}">
+              ${it.ok ? '✅ 就绪' : '未就绪}
+            </span>
+          </div>`
+        ).join('');
+      } catch (e) {
+        statusInfo.innerHTML = '<div class="status-item"><span class="dot dot-red"></span>无法连接后端</div>';
+      }
+    }
+
+    // ================================================================
+    // 📋 文档管理：获取文档列表    // ================================================================
+    async function loadDocuments() {
+      try {
+        const resp = await fetch('/api/documents');
+        const d = await resp.json();
+        if (d.status !== 'ok') {
+          docList.innerHTML = '<p class="doc-empty">加载失败</p>';
+          return;
+        }
+        const docs = d.documents || [];
+        if (docs.length === 0) {
+          docList.innerHTML = '<p class="doc-empty">向量库为空，请先上传文档.../p>';
+          return;
+        }
+        docList.innerHTML = docs.map(doc => `
+          <div class="doc-item" data-filename="${escHtml(doc.filename)}">
+            <div class="doc-info">
+              <span class="doc-name" title="${escHtml(doc.filename)}">📄 ${escHtml(doc.filename)}</span>
+              <span class="doc-chunks">${doc.chunks} 个片段/span>
+            </div>
+            <button class="btn btn-delete" onclick="deleteDoc('${escHtml(doc.filename).replace(/'/g, "\\'")}')">删除</button>
+          </div>
+        `).join('');
+      } catch (e) {
+        docList.innerHTML = '<p class="doc-empty">加载失败</p>';
+      }
+    }
+
+    // ================================================================
+    // 🗑️ 文档管理：删除文档    // ================================================================
+    async function deleteDoc(filename) {
+      if (!confirm(`确定要删除{filename}」吗？此操作不可恢复。`)) return;
+      try {
+        const resp = await fetch('/api/documents', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename }),
+        });
+        const d = await resp.json();
+        if (d.status === 'ok') {
+          showToast(d.message, 'success');
+          loadDocuments();
+          // ================================================================
+    // 加载对话上下文状态（有历史对话时显示"已加载上下文"提示）
+    // ================================================================
+    async function loadChatContextStatus() {
+      try {
+        const resp = await fetch('/api/history');
+        const d = await resp.json();
+        const history = d.history || [];
+        const badge = document.getElementById('context-badge');
+        const ctxText = document.getElementById('ctx-text');
+        if (history.length > 0 && badge && ctxText) {
+          const rounds = Math.floor(history.length / 2);
+          ctxText.textContent = '已加载 ' + rounds + ' 轮对话上下文';
+          badge.style.display = 'flex';
+        }
+      } catch (_) { /* 静默失败 */ }
+    }
+
+    loadStatus();
+        } else {
+          showToast('删除失败！ + d.message, 'error');
+        }
+      } catch (e) {
+        showToast('删除失败！ + e.message, 'error');
+      }
+    }
+
+    // ================================================================
+    // 📤 流式发送问题    // ================================================================
+    async function sendQuestion() {
+      const question = questionInput.value.trim();
+      if (!question) return;
+
+      removeWelcome();
+
+      // 先创建助手气泡，文字为空（流式填充）
+      const { wrapper: bubble, textEl } = createAssistantBubble();
+      chatContainer.appendChild(bubble);
+      scrollToBottom();
+
+      sendBtn.disabled = true;
+      sendBtn.textContent = '⏳';
+      questionInput.value = '';
+
+      try {
+        // 使用 ReadableStream 读取 SSE
+        const resp = await fetch('/api/chat-stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question }),
+        });
+
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();  // 最后一行可能不完整，留到下一行
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (!payload) continue;
+
+            let event;
+            try { event = JSON.parse(payload); } catch (_) { continue; }
+
+            if (event.type === 'token') {
+              // 逐字追加回答内容
+              textEl.innerHTML += escHtml(event.content);
+              scrollToBottom();
+
+            } else if (event.type === 'sources') {
+              // 收到来源信息，挂到气泡下方              const sourcesEl = createSourcesBlock(event.sources);
+              bubble.appendChild(sourcesEl);
+              scrollToBottom();
+
+            } else if (event.type === 'done') {
+              // 完成，保存到历史
+              const fullAnswer = textEl.textContent || textEl.innerText || '';
+              saveToHistory(question, fullAnswer);
+
+            } else if (event.type === 'error') {
+              showToast(event.message || '发生错误', 'error');
+            }
+          }
+        }
+
+      } catch (e) {
+        showToast('网络错误！ + e.message, 'error');
+        textEl.innerHTML = '⚠️ 请求失败，请检查后端服务是否启动？;
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '发送;
+      }
+    }
+
+    // ================================================================
+    // 保存到对话历史    // ================================================================
+    async function saveToHistory(question, answer) {
+      try {
+        await fetch('/api/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question, answer }),
+        });
+      } catch (_) { /* 静默失败 */ }
+    }
+
+    // ================================================================
+    // 文件上传流程
+    // ================================================================
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+      selectedFile = fileInput.files[0];
+      if (selectedFile) {
+        uploadArea.querySelector('p').innerHTML =
+          `已选择：strong>${selectedFile.name}</strong>`;
+        uploadBtn.style.display = 'inline-block';
+      }
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = '上传中...;
+
+      try {
+        const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          showToast(`✅ ${data.message}`, 'success');
+          uploadArea.querySelector('p').innerHTML =
+            '<span class="upload-icon">📁</span><p>点击选择文件<br><small>支持 .txt / .md，最大 5 MB</small></p>';
+          uploadBtn.style.display = 'none';
+          fileInput.value = '';
+          selectedFile = null;
+          loadStatus();
+          loadDocuments();
+        } else {
+          showToast('❌ ' + data.message, 'error');
+        }
+      } catch (e) {
+        showToast('上传失败！ + e.message, 'error');
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = '确认上传';
+      }
+    });
+
+    // ================================================================
+    // 粘贴文本入库
+    // ================================================================
+    pasteBtn.addEventListener('click', async () => {
+      const text = pasteText.value.trim();
+      if (!text) { showToast('请先粘贴文本内容..., 'error'); return; }
+
+      pasteBtn.disabled = true;
+      pasteBtn.textContent = '入库中...;
+
+      try {
+        const resp = await fetch('/api/paste', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          showToast(`✅ ${data.message}`, 'success');
+          pasteText.value = '';
+          loadStatus();
+          loadDocuments();
+        } else {
+          showToast('❌ ' + data.message, 'error');
+        }
+      } catch (e) {
+        showToast('入库失败！ + e.message, 'error');
+      } finally {
+        pasteBtn.disabled = false;
+        pasteBtn.textContent = '入库';
+      }
+    });
+
+    // ================================================================
+    // 清空历史
+    // ================================================================
+    clearHistoryBtn.addEventListener('click', async () => {
+      await fetch('/api/clear', { method: 'POST' });
+      chatContainer.innerHTML = `
+        <div class="welcome-card">
+          <div class="welcome-icon">🤖</div>
+          <h2>对话已清空/h2>
+          <p>可以开始新的对话了.../p>
+        </div>`;
+      showToast('对话历史已清空！, 'info');
+    });
+
+    // ================================================================
+    // 事件绑定
+    // ================================================================
+    sendBtn.addEventListener('click', sendQuestion);
+    questionInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+    });
+
+    refreshDocsBtn.addEventListener('click', loadDocuments);
+
+    // ================================================================
+    // 初始化    // ================================================================
+    loadStatus();
+    loadDocuments();
+    loadChatContextStatus();
+    setInterval(loadStatus, 30_000);
+  </script>
+</body>
+</html>
+
