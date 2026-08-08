@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  rag-demo:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data           # 持久化上传文档
+      - ./chroma_db:/app/chroma_db # 持久化向量库
+    env_file:
+      - .env                       # 从 .env 文件加载环境变量
+    restart: unless-stopped
+    # 容器名方便识别
+    container_name: rag-demo

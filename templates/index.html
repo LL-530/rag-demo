@@ -15,10 +15,10 @@
         <p class="subtitle">基于检索增强生成的 AI 问答系统</p>
       </div>
 
-      <!-- 状态面板 -->
+      <!-- 状态面�?-->
       <div class="status-panel">
-        <h3>⚙ 系统状态</h3>
-        <div id="status-info" class="status-items">加载中…</div>
+        <h3>�?系统状�?/h3>
+        <div id="status-info" class="status-items">加载中�?/div>
       </div>
 
       <!-- 文档上传 -->
@@ -26,31 +26,31 @@
         <h3>📄 上传文档</h3>
         <div class="upload-area" id="upload-area">
           <span class="upload-icon">📁</span>
-          <p>点击选择文件<br><small>支持 .txt / .md，最大 5 MB</small></p>
-          <input type="file" id="file-input" accept=".txt,.md" hidden />
+          <p>点击选择文件<br><small>支持 .txt / .md，最�?5 MB</small></p>
+          <input type="file" id="file-input" accept=".txt,.md,.pdf" hidden />
         </div>
         <button class="btn btn-secondary" id="upload-btn" style="display:none">确认上传</button>
       </div>
 
       <!-- 粘贴文本 -->
       <div class="section">
-        <h3>✏ 粘贴文本</h3>
-        <textarea id="paste-text" placeholder="在此粘贴要入库的文本内容…"></textarea>
+        <h3>�?粘贴文本</h3>
+        <textarea id="paste-text" placeholder="在此粘贴要入库的文本内容�?></textarea>
         <button class="btn btn-primary" id="paste-btn">入库</button>
       </div>
 
-      <!-- ★ 新增：文档管理面板 -->
+      <!-- �?新增：文档管理面�?-->
       <div class="section doc-mgmt-section">
         <h3>📂 文档管理</h3>
         <div id="doc-list" class="doc-list">
-          <p class="doc-empty">加载中…</p>
+          <p class="doc-empty">加载中�?/p>
         </div>
         <button class="btn btn-secondary" id="refresh-docs-btn" style="margin-top:8px">🔄 刷新列表</button>
       </div>
 
       <!-- 快捷操作 -->
       <div class="section">
-        <h3>⚡ 操作</h3>
+        <h3>�?操作</h3>
         <button class="btn btn-danger" id="clear-history-btn">🗑 清空对话历史</button>
       </div>
 
@@ -59,21 +59,20 @@
       </div>
     </aside>
 
-    <!-- ========== 右侧主内容 ========== -->
+    <!-- ========== 右侧主内�?========== -->
     <main class="main">
       <div class="chat-container" id="chat-container">
         <!-- 欢迎消息 -->
         <div class="welcome-card">
           <div class="welcome-icon">🤖</div>
-          <h2>你好，我是 RAG 问答助手</h2>
-          <p>在下方输入问题，我会基于已上传的文档为你检索并生成回答。</p>
+          <h2>你好，我�?RAG 问答助手</h2>
+          <p>在下方输入问题，我会基于已上传的文档为你检索并生成回答�?/p>
           <div class="suggestions">
             <button class="chip" onclick="fillQuestion('人工智能的发展历程是怎样的？')">
               人工智能的发展历程是怎样的？
             </button>
-            <button class="chip" onclick="fillQuestion('什么是图灵测试？')">
-              什么是图灵测试？
-            </button>
+            <button class="chip" onclick="fillQuestion('什么是图灵测试�?)">
+              什么是图灵测试�?            </button>
             <button class="chip" onclick="fillQuestion('深度学习革命始于什么时候？')">
               深度学习革命始于什么时候？
             </button>
@@ -84,15 +83,15 @@
         </div>
       </div>
 
-      <!-- 输入框 -->
+      <!-- 输入�?-->
       <div class="input-bar">
         <input
           type="text"
           id="question-input"
-          placeholder="输入你的问题，按 Enter 发送…"
+          placeholder="输入你的问题，按 Enter 发送�?
           autocomplete="off"
         />
-        <button class="btn btn-send" id="send-btn">发送</button>
+        <button class="btn btn-send" id="send-btn">发�?/button>
       </div>
     </main>
   </div>
@@ -117,7 +116,7 @@
     const docList         = document.getElementById('doc-list');
     const refreshDocsBtn  = document.getElementById('refresh-docs-btn');
 
-    // ---- 当前选中的文件 ----
+    // ---- 当前选中的文�?----
     let selectedFile = null;
 
     // ================================================================
@@ -157,8 +156,7 @@
     }
 
     // ================================================================
-    // 构建对话气泡（普通版）
-    // ================================================================
+    // 构建对话气泡（普通版�?    // ================================================================
     function createMessageBubble(role, content) {
       const wrapper = document.createElement('div');
       wrapper.className = `msg-bubble ${role}`;
@@ -169,7 +167,7 @@
 
       const body = document.createElement('div');
       body.className = 'msg-body';
-      body.innerHTML = `<div class="msg-role">${role === 'user' ? '你' : '助手'}</div>`
+      body.innerHTML = `<div class="msg-role">${role === 'user' ? '�? : '助手'}</div>`
                     + `<div class="msg-text">${escHtml(content)}</div>`;
 
       wrapper.appendChild(avatar);
@@ -178,8 +176,7 @@
     }
 
     // ================================================================
-    // 构建助手气泡容器（流式用，逐步追加内容 + 引用来源）
-    // ================================================================
+    // 构建助手气泡容器（流式用，逐步追加内容 + 引用来源�?    // ================================================================
     function createAssistantBubble() {
       const wrapper = document.createElement('div');
       wrapper.className = 'msg-bubble assistant';
@@ -214,13 +211,13 @@
 
       const header = document.createElement('div');
       header.className = 'sources-header';
-      header.innerHTML = `<span class="sources-icon">📌</span><span>参考来源</span>`
-                       + `<span class="sources-toggle">▼ 展开</span>`;
+      header.innerHTML = `<span class="sources-icon">📌</span><span>参考来�?/span>`
+                       + `<span class="sources-toggle">�?展开</span>`;
       header.addEventListener('click', () => {
         const list = block.querySelector('.sources-list');
         const isOpen = list.style.display !== 'none';
         list.style.display = isOpen ? 'none' : 'block';
-        header.querySelector('.sources-toggle').textContent = isOpen ? '▼ 展开' : '▲ 收起';
+        header.querySelector('.sources-toggle').textContent = isOpen ? '�?展开' : '�?收起';
       });
 
       const list = document.createElement('div');
@@ -255,8 +252,7 @@
     }
 
     // ================================================================
-    // 系统状态
-    // ================================================================
+    // 系统状�?    // ================================================================
     async function loadStatus() {
       try {
         const resp = await fetch('/api/status');
@@ -265,14 +261,14 @@
           { label: 'API 配置',  ok: d.api_configured },
           { label: 'LLM 模型',  ok: d.llm_ready },
           { label: 'Embedding', ok: d.embeddings_ready },
-          { label: '向量库',    ok: d.vectorstore_ready },
+          { label: '向量�?,    ok: d.vectorstore_ready },
         ];
         statusInfo.innerHTML = items.map(it =>
           `<div class="status-item">
             <span class="dot ${it.ok ? 'dot-green' : 'dot-red'}"></span>
             <span>${it.label}</span>
             <span class="status-badge ${it.ok ? 'badge-ok' : 'badge-err'}">
-              ${it.ok ? '✅ 就绪' : '未就绪'}
+              ${it.ok ? '�?就绪' : '未就�?}
             </span>
           </div>`
         ).join('');
@@ -282,8 +278,7 @@
     }
 
     // ================================================================
-    // ★ 文档管理：获取文档列表
-    // ================================================================
+    // �?文档管理：获取文档列�?    // ================================================================
     async function loadDocuments() {
       try {
         const resp = await fetch('/api/documents');
@@ -294,14 +289,14 @@
         }
         const docs = d.documents || [];
         if (docs.length === 0) {
-          docList.innerHTML = '<p class="doc-empty">向量库为空，请先上传文档。</p>';
+          docList.innerHTML = '<p class="doc-empty">向量库为空，请先上传文档�?/p>';
           return;
         }
         docList.innerHTML = docs.map(doc => `
           <div class="doc-item" data-filename="${escHtml(doc.filename)}">
             <div class="doc-info">
               <span class="doc-name" title="${escHtml(doc.filename)}">📄 ${escHtml(doc.filename)}</span>
-              <span class="doc-chunks">${doc.chunks} 个片段</span>
+              <span class="doc-chunks">${doc.chunks} 个片�?/span>
             </div>
             <button class="btn btn-delete" onclick="deleteDoc('${escHtml(doc.filename).replace(/'/g, "\\'")}')">删除</button>
           </div>
@@ -312,10 +307,9 @@
     }
 
     // ================================================================
-    // ★ 文档管理：删除文档
-    // ================================================================
+    // �?文档管理：删除文�?    // ================================================================
     async function deleteDoc(filename) {
-      if (!confirm(`确定要删除「${filename}」吗？此操作不可恢复。`)) return;
+      if (!confirm(`确定要删除�?{filename}」吗？此操作不可恢复。`)) return;
       try {
         const resp = await fetch('/api/documents', {
           method: 'DELETE',
@@ -328,16 +322,15 @@
           loadDocuments();
           loadStatus();
         } else {
-          showToast('删除失败：' + d.message, 'error');
+          showToast('删除失败�? + d.message, 'error');
         }
       } catch (e) {
-        showToast('删除失败：' + e.message, 'error');
+        showToast('删除失败�? + e.message, 'error');
       }
     }
 
     // ================================================================
-    // ★ 流式发送问题
-    // ================================================================
+    // �?流式发送问�?    // ================================================================
     async function sendQuestion() {
       const question = questionInput.value.trim();
       if (!question) return;
@@ -350,7 +343,7 @@
       scrollToBottom();
 
       sendBtn.disabled = true;
-      sendBtn.textContent = '…';
+      sendBtn.textContent = '�?;
       questionInput.value = '';
 
       try {
@@ -376,8 +369,7 @@
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
-          buffer = lines.pop();  // 最后一行可能不完整，留到下一轮
-
+          buffer = lines.pop();  // 最后一行可能不完整，留到下一�?
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
             const payload = line.slice(6).trim();
@@ -392,8 +384,7 @@
               scrollToBottom();
 
             } else if (event.type === 'sources') {
-              // 收到来源信息，挂到气泡下方
-              const sourcesEl = createSourcesBlock(event.sources);
+              // 收到来源信息，挂到气泡下�?              const sourcesEl = createSourcesBlock(event.sources);
               bubble.appendChild(sourcesEl);
               scrollToBottom();
 
@@ -409,17 +400,16 @@
         }
 
       } catch (e) {
-        showToast('网络错误：' + e.message, 'error');
-        textEl.innerHTML = '⚠️ 请求失败，请检查后端服务是否启动。';
+        showToast('网络错误�? + e.message, 'error');
+        textEl.innerHTML = '⚠️ 请求失败，请检查后端服务是否启动�?;
       } finally {
         sendBtn.disabled = false;
-        sendBtn.textContent = '发送';
+        sendBtn.textContent = '发�?;
       }
     }
 
     // ================================================================
-    // 保存到对话历史
-    // ================================================================
+    // 保存到对话历�?    // ================================================================
     async function saveToHistory(question, answer) {
       try {
         await fetch('/api/history', {
@@ -439,7 +429,7 @@
       selectedFile = fileInput.files[0];
       if (selectedFile) {
         uploadArea.querySelector('p').innerHTML =
-          `已选择：<strong>${selectedFile.name}</strong>`;
+          `已选择�?strong>${selectedFile.name}</strong>`;
         uploadBtn.style.display = 'inline-block';
       }
     });
@@ -450,25 +440,25 @@
       formData.append('file', selectedFile);
 
       uploadBtn.disabled = true;
-      uploadBtn.textContent = '上传中…';
+      uploadBtn.textContent = '上传中�?;
 
       try {
         const resp = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await resp.json();
         if (data.status === 'ok') {
-          showToast(`✅ ${data.message}`, 'success');
+          showToast(`�?${data.message}`, 'success');
           uploadArea.querySelector('p').innerHTML =
-            '<span class="upload-icon">📁</span><p>点击选择文件<br><small>支持 .txt / .md，最大 5 MB</small></p>';
+            '<span class="upload-icon">📁</span><p>点击选择文件<br><small>支持 .txt / .md，最�?5 MB</small></p>';
           uploadBtn.style.display = 'none';
           fileInput.value = '';
           selectedFile = null;
           loadStatus();
           loadDocuments();
         } else {
-          showToast('❌ ' + data.message, 'error');
+          showToast('�?' + data.message, 'error');
         }
       } catch (e) {
-        showToast('上传失败：' + e.message, 'error');
+        showToast('上传失败�? + e.message, 'error');
       } finally {
         uploadBtn.disabled = false;
         uploadBtn.textContent = '确认上传';
@@ -480,10 +470,10 @@
     // ================================================================
     pasteBtn.addEventListener('click', async () => {
       const text = pasteText.value.trim();
-      if (!text) { showToast('请先粘贴文本内容。', 'error'); return; }
+      if (!text) { showToast('请先粘贴文本内容�?, 'error'); return; }
 
       pasteBtn.disabled = true;
-      pasteBtn.textContent = '入库中…';
+      pasteBtn.textContent = '入库中�?;
 
       try {
         const resp = await fetch('/api/paste', {
@@ -493,15 +483,15 @@
         });
         const data = await resp.json();
         if (data.status === 'ok') {
-          showToast(`✅ ${data.message}`, 'success');
+          showToast(`�?${data.message}`, 'success');
           pasteText.value = '';
           loadStatus();
           loadDocuments();
         } else {
-          showToast('❌ ' + data.message, 'error');
+          showToast('�?' + data.message, 'error');
         }
       } catch (e) {
-        showToast('入库失败：' + e.message, 'error');
+        showToast('入库失败�? + e.message, 'error');
       } finally {
         pasteBtn.disabled = false;
         pasteBtn.textContent = '入库';
@@ -516,10 +506,10 @@
       chatContainer.innerHTML = `
         <div class="welcome-card">
           <div class="welcome-icon">🤖</div>
-          <h2>对话已清空</h2>
-          <p>可以开始新的对话了。</p>
+          <h2>对话已清�?/h2>
+          <p>可以开始新的对话了�?/p>
         </div>`;
-      showToast('对话历史已清空。', 'info');
+      showToast('对话历史已清空�?, 'info');
     });
 
     // ================================================================
@@ -533,11 +523,11 @@
     refreshDocsBtn.addEventListener('click', loadDocuments);
 
     // ================================================================
-    // 初始化
-    // ================================================================
+    // 初始�?    // ================================================================
     loadStatus();
     loadDocuments();
     setInterval(loadStatus, 30_000);
   </script>
 </body>
 </html>
+

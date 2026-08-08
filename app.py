@@ -1,18 +1,18 @@
 """
-RAG Demo - åŸºäº Flask + LangChain + ChromaDB çš„æ£€ç´¢å¢å¼ºç”Ÿæˆé—®ç­”ç³»ç»Ÿ
+RAG Demo - »ùÓÚ Flask + LangChain + ChromaDB µÄ¼ìË÷ÔöÇ¿Éú³ÉÏµÍ³
 =====================================================================
-åŠŸèƒ½ï¼š
-  1. æ–‡æ¡£ä¸Šä¼ ï¼ˆtxt / markdownï¼‰æˆ–ç²˜è´´æ–‡æœ¬
-  2. æ–‡æœ¬åˆ‡åˆ† â†’ Embedding â†’ å­˜å…¥ ChromaDB å‘é‡åº“
-  3. ç”¨æˆ·æé—® â†’ æ£€ç´¢ç›¸å…³ç‰‡æ®µ â†’ è°ƒç”¨ LLM ç”Ÿæˆå›ç­”
-  4. Web é—®ç­”ç•Œé¢ + å†å²å¯¹è¯è®°å½•
-  5. â˜… æµå¼è¾“å‡ºï¼ˆæ‰“å­—æœºæ•ˆæœï¼‰
-  6. â˜… å¼•ç”¨æ¥æºå±•ç¤ºï¼ˆå¯å±•å¼€æŸ¥çœ‹åŸæ–‡ç‰‡æ®µï¼‰
-  7. â˜… å¤šæ–‡æ¡£ç®¡ç†ï¼ˆåˆ—è¡¨ / åˆ é™¤ï¼‰
+¹¦ÄÜ£º  1. ÎÄµµÉÏ´«£¨txt / markdown / **PDF**£©
+       2. ÎÄ±¾·ÖÆ¬ ¡ú Embedding ¡ú ´æÈë ChromaDB ÏòÁ¿¿â
+       3. ÓÃ»§ÌáÎÊ ¡ú ¼ìË÷Ïà¹ØÆ¬¶Î ¡ú µ÷ÓÃ LLM Éú³É»Ø´ğ
+       4. Web Ó¦´ğ½çÃæ + ÀúÊ·»á»°¼ÇÂ¼
+       5. Á÷Ê½Êä³ö£¨´ò×Ö»úĞ§¹û£©
+       6. ÒıÓÃÀ´Ô´ÏÔÊ¾£¨¿Éµã¿ª²é¿´Ô­ÎÄÆ¬¶Î£©
+       7. ¶àÎÄµµ¹ÜÀí£¨ÁĞ±í²é¿´ / É¾³ı£©
 """
 
 import os
 import json
+import io
 import datetime
 import traceback
 from dotenv import load_dotenv
@@ -25,31 +25,35 @@ from langchain_community.vectorstores import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 
-# ---- åŠ è½½ç¯å¢ƒå˜é‡ ----
-load_dotenv()  # è¯»å– .env æ–‡ä»¶
+# ---- PDF ½âÎöÒÀÀµ ----
+import pypdf
 
-# ---- é…ç½® ----
+# ---- ¼ÓÔØ»·¾³±äÁ¿ ----
+load_dotenv()  # ¶ÁÈ¡ .env ÎÄ¼ş
+
+# ---- ÅäÖÃ ----
 API_KEY = os.getenv("API_KEY", "")
 BASE_URL = os.getenv("BASE_URL", "https://api.openai.com/v1")
 PERSIST_DIR = os.path.join(os.path.dirname(__file__), "chroma_db")
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
-# å¦‚æœæ²¡é… API_KEYï¼Œå¯åŠ¨æ—¶æ‰“å°è­¦å‘Šä½†ä¸é˜»æ–­ï¼Œä»¥ä¾¿ç©ºè·‘æŸ¥çœ‹ç•Œé¢
+# Èç¹ûÃ»ÓĞÅäÖÃ API_KEY£¬Æô¶¯Ê±´òÓ¡ÌáĞÑµ«²»×è¶Ï£¬ÒÔ¿Õ½Ó¿Ú²é¿´½çÃæ
 if not API_KEY:
-    print("[è­¦å‘Š] æœªæ£€æµ‹åˆ° API_KEYï¼Œè¯·åœ¨ .env æ–‡ä»¶ä¸­é…ç½®åå†å¯åŠ¨ã€‚")
+    print("[ÌáÊ¾] Î´¼ì²âµ½ API_KEY£¬ÇëÔÚ .env ÎÄ¼şÖĞÅäÖÃºóÔÙÆô¶¯¡£")
 
-# ---- Flask åˆå§‹åŒ– ----
+# ---- Flask ³õÊ¼»¯ ----
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 app.config["UPLOAD_FOLDER"] = DATA_DIR
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+# ÉÏ´«´óĞ¡ÏŞÖÆ£º10MB£¨PDF ÎÄ¼ş¿ÉÄÜ½Ï´ó£©
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
 
 # ================================================================
-# æ ¸å¿ƒï¼šè·å– LLM å®ä¾‹ï¼ˆå»¶è¿Ÿåˆå§‹åŒ–ï¼Œé¿å…å¯åŠ¨æ—¶å°±æŠ¥é”™ï¼‰
+# ºËĞÄ£º»ñÈ¡ LLM ÊµÀı£¨Æô¶¯Ê§°ÜÊ±²¶»ñ£¬±ÜÃâ×è¶ÏÆô¶¯£©
 # ================================================================
 def get_llm():
-    """è¿”å› ChatOpenAI å®ä¾‹ï¼Œå¦‚æœ API_KEY æœªé…ç½®åˆ™è¿”å› None"""
+    """·µ»Ø ChatOpenAI ÊµÀı£¬Èç¹ûÎ´ÅäÖÃ API_KEY Ôò·µ»Ø None"""
     if not API_KEY:
         return None
     return ChatOpenAI(
@@ -61,10 +65,10 @@ def get_llm():
 
 
 # ================================================================
-# æ ¸å¿ƒï¼šè·å– Embedding å®ä¾‹
+# ºËĞÄ£º»ñÈ¡ Embedding ÊµÀı
 # ================================================================
 def get_embeddings():
-    """è¿”å› OpenAIEmbeddings å®ä¾‹ï¼Œæœªé…ç½®æ—¶è¿”å› None"""
+    """·µ»Ø OpenAIEmbeddings ÊµÀı£¬Î´ÅäÖÃÊ±·µ»Ø None"""
     if not API_KEY:
         return None
     return OpenAIEmbeddings(
@@ -74,12 +78,12 @@ def get_embeddings():
 
 
 # ================================================================
-# æ ¸å¿ƒï¼šåŠ è½½å‘é‡åº“
+# ºËĞÄ£º¼ÓÔØÏòÁ¿¿â
 # ================================================================
 def get_vectorstore():
     """
-    åŠ è½½æŒä¹…åŒ– ChromaDB å‘é‡åº“ã€‚
-    å¦‚æœæ•°æ®åº“ä¸å­˜åœ¨ä¸”æ²¡æœ‰å¯ç”¨ embeddingsï¼Œè¿”å› Noneã€‚
+    ´Ó³Ö¾Ã»¯Ä¿Â¼¼ÓÔØ ChromaDB ÏòÁ¿¿â¡£
+    Èç¹ûÊı¾İÄ¿Â¼²»´æÔÚ»òÃ»ÓĞ¿ÉÓÃ embeddings£¬·µ»Ø None¡£
     """
     embeddings = get_embeddings()
     if embeddings is None:
@@ -94,19 +98,19 @@ def get_vectorstore():
 
 
 # ================================================================
-# è¾…åŠ©ï¼šæ–‡æœ¬åˆ‡åˆ†
+# ¸¨Öú£ºÎÄ±¾·ÖÆ¬
 # ================================================================
 def split_text(text: str) -> list[Document]:
     """
-    å°†é•¿æ–‡æœ¬æŒ‰æ®µè½åˆ‡åˆ†ä¸ºå°å—ï¼Œä¾¿äºå‘é‡åŒ–å’Œæ£€ç´¢ã€‚
-    åˆ‡åˆ†å‚æ•°ï¼š
-      chunk_size      = 500 å­—ç¬¦
-      chunk_overlap   = 50  å­—ç¬¦ï¼ˆä¿ç•™ä¸Šä¸‹æ–‡è¡”æ¥ï¼‰
+    ½«³¤ÎÄ±¾°´¶ÎÂäÇĞ·ÖÎªĞ¡¿é£¬ÓÃÓÚÏòÁ¿»¯ºÍ¼ìË÷¡£
+    ·ÖÆ¬²ÎÊı£º
+      chunk_size      = 500 ×Ö·û
+      chunk_overlap   = 50  ×Ö·û£¨±£ÁôÉÏÏÂÎÄÏÎ½Ó£©
     """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
         chunk_overlap=50,
-        separators=["\n\n", "\n", "ã€‚", "ï¼›", " ", ""],
+        separators=["\n\n", "\n", "¡£", "£¿", "£¡", " ", ""],
         length_function=len,
     )
     texts = splitter.split_text(text)
@@ -115,37 +119,120 @@ def split_text(text: str) -> list[Document]:
 
 
 # ================================================================
-# è¾…åŠ©ï¼šåˆ‡åˆ†æ–‡æœ¬å¹¶é™„å¸¦æ¥æºæ–‡ä»¶åå…ƒæ•°æ®
+# ¸¨Öú£ºÇĞ·ÖÎÄ±¾²¢¸½¼ÓÀ´Ô´ÎÄ¼şÃûÔªÊı¾İ
 # ================================================================
-def make_docs_with_source(raw_text: str, filename: str) -> list[Document]:
-    """åˆ‡åˆ†æ–‡æœ¬ï¼Œå¹¶ä¸ºæ¯ä¸ª chunk é™„åŠ  source å…ƒæ•°æ®ï¼ˆç”¨äºå¼•ç”¨æ¥æºå±•ç¤ºï¼‰ã€‚"""
+def make_docs_with_source(raw_text: str, filename: str,
+                          page_map: dict = None) -> list[Document]:
+    """
+    ÇĞ·ÖÎÄ±¾£¬²¢ÎªÃ¿¸ö chunk ¸½¼Ó source ÔªÊı¾İ£¨ÓÃÓÚÒıÓÃÀ´Ô´ÏÔÊ¾£©¡£
+    ¿ÉÑ¡µØ´«Èë page_map£¬ÎªÃ¿¸ö chunk ¸½¼Ó page_number ÔªÊı¾İ£¨PDF ÓÃ£©¡£
+
+    ²ÎÊı£º
+      raw_text  : Ô­Ê¼ÎÄ±¾
+      filename  : À´Ô´ÎÄ¼şÃû
+      page_map  : {chunk_index: page_number} µÄÓ³Éä×Öµä£¬¿ÉÑ¡
+    ·µ»Ø£º
+      list[Document] Ã¿¸ö chunk ¶¼´øÓĞ source ÔªÊı¾İ
+    """
     docs = split_text(raw_text)
-    for d in docs:
+    for i, d in enumerate(docs):
         d.metadata["source"] = filename
+        # Èç¹ûÌá¹©ÁË page_map£¬¸½¼Ó¶ÔÓ¦Ò³Âë
+        if page_map is not None and i in page_map:
+            d.metadata["page_number"] = page_map[i]
     return docs
 
 
 # ================================================================
-# è¾…åŠ©ï¼šåˆå§‹åŒ–ç¤ºä¾‹æ•°æ®
+# ĞÂÔö£º´Ó PDF ÎÄ¼şÖĞÌáÈ¡ÎÄ±¾
+# ================================================================
+def extract_text_from_pdf(file_bytes: bytes) -> tuple[str, dict]:
+    """
+    Ê¹ÓÃ pypdf ½âÎö PDF ÎÄ¼ş£¬ÌáÈ¡È«²¿ÎÄ±¾ÄÚÈİ¡£
+
+    Í¬Ê±¹¹½¨ chunk_index ¡ú page_number µÄÓ³Éä±í£¬
+    ÓÃÓÚÔÚÒıÓÃÀ´Ô´ÖĞÏÔÊ¾ PDF Ò³Âë¡£
+
+    ²ÎÊı£º
+      file_bytes  : PDF ÎÄ¼şµÄÔ­Ê¼¶ş½øÖÆÄÚÈİ
+    ·µ»Ø£º
+      (text, page_map)
+        text     : ÌáÈ¡µÄÍêÕûÎÄ±¾£¨×Ö·û´®£©
+        page_map : {chunk_index: page_number}£¬Èô³ö´íÔòÎª¿Õ×Öµä
+    Òì³££º
+      Èô PDF ¼ÓÃÜ»òÎŞ·¨½âÎö£¬Å×³ö ValueError ²¢¸½´øÓÑºÃÌáÊ¾
+    """
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+    except Exception as e:
+        raise ValueError(f"ÎŞ·¨½âÎö PDF ÎÄ¼ş£º{e}")
+
+    # ¼ì²éÊÇ·ñ¼ÓÃÜ
+    if reader.is_encrypted:
+        raise ValueError("¸Ã PDF ÎÄ¼şÒÑ¼ÓÃÜ£¬ÇëÌá¹©Î´¼ÓÃÜµÄÎÄ¼şºóÖØÊÔ¡£")
+
+    # ÖğÒ³ÌáÈ¡ÎÄ±¾£¬Í¬Ê±¼ÇÂ¼Ã¿Ò³µÄ×Ö·û·¶Î§
+    page_texts: list[str] = []
+    for page in reader.pages:
+        try:
+            t = page.extract_text() or ""
+        except Exception:
+            t = ""
+        page_texts.append(t)
+
+    full_text = "\n\n".join(page_texts)
+
+    # ¹¹½¨ chunk_index ¡ú page_number Ó³Éä
+    # ²ßÂÔ£º±éÀúÈ«ÎÄ£¬Ã¿µ±Óöµ½Ä³Ò³ÎÄ±¾µÄÆğÊ¼Î»ÖÃÊ±£¬¼ÇÂ¼¸Ã chunk ÊôÓÚÄÄÒ»Ò³
+    page_map: dict[int, int] = {}
+    char_pos = 0          # µ±Ç°ÔÚÕû¸ö full_text ÖĞµÄ×Ö·ûÆ«ÒÆÁ¿
+    chunk_size = 500      # Óë split_text ±£³ÖÒ»ÖÂ
+    chunk_overlap = 50
+
+    for page_idx, page_t in enumerate(page_texts):
+        page_start = full_text.find(page_t, char_pos)
+        if page_start == -1:
+            # ¼«¶ËÇé¿ö£ºÖØ¸´ÎÄ±¾µ¼ÖÂÕÒ²»µ½¾«È·Î»ÖÃ£¬Ìø¹ı¸ÃÒ³
+            char_pos += len(page_t) + 2
+            continue
+
+        # ¸ÃÒ³¶ÔÓ¦µÄ chunk ÆğÊ¼Ë÷Òı
+        # chunk_start_char ÊÇ¸Ã chunk ÔÚÕû¸öÎÄ±¾ÖĞµÄ×Ö·ûÎ»ÖÃ
+        # chunk_index = chunk_start_char // (chunk_size - chunk_overlap)
+        first_chunk_idx = page_start // (chunk_size - chunk_overlap)
+        # ¸ÃÒ³×îºóÒ»¸ö×Ö·û¶ÔÓ¦µÄ chunk
+        page_end = page_start + len(page_t)
+        last_chunk_idx = page_end // (chunk_size - chunk_overlap)
+
+        for cidx in range(first_chunk_idx, last_chunk_idx + 1):
+            page_map[cidx] = page_idx + 1  # Ò³Âë´Ó 1 ¿ªÊ¼
+
+        char_pos = page_end + 2  # +2 ÊÇÒòÎª join Ê±²åÈëÁË "\n\n"
+
+    return full_text, page_map
+
+
+# ================================================================
+# ¸¨Öú£º³õÊ¼»¯Ê¾ÀıÊı¾İ
 # ================================================================
 def init_sample_data():
     """
-    é¡¹ç›®é¦–æ¬¡è¿è¡Œæ—¶ï¼Œå°† data/example_doc.txt å†™å…¥å‘é‡åº“ï¼Œ
-    ç¡®ä¿æ‰“å¼€ç½‘é¡µåç«‹åˆ»å¯ä»¥ä½“éªŒé—®ç­”ï¼Œæ— éœ€æ‰‹åŠ¨ä¸Šä¼ ã€‚
+    ÏîÄ¿Ê×´ÎÔËĞĞÊ±£¬½« data/example_doc.txt Ğ´ÈëÏòÁ¿¿â£¬
+    È·±£´ò¿ªÒ³Ãæºó¿ÉÖ±½ÓÌáÎÊ£¬ÎŞĞèÊÖ¶¯ÉÏ´«¡£
     """
     embeddings = get_embeddings()
     if embeddings is None:
-        print("[ç¤ºä¾‹æ•°æ®] æœªé…ç½® API_KEYï¼Œè·³è¿‡ç¤ºä¾‹æ•°æ®åˆå§‹åŒ–ã€‚")
+        print("[³õÊ¼»¯Êı¾İ] Î´ÅäÖÃ API_KEY£¬Ìø¹ıÊ¾ÀıÊı¾İ³õÊ¼»¯¡£")
         return
     example_path = os.path.join(DATA_DIR, "example_doc.txt")
     if not os.path.exists(example_path):
-        print("[ç¤ºä¾‹æ•°æ®] æœªæ‰¾åˆ° example_doc.txtï¼Œè·³è¿‡ã€‚")
+        print("[³õÊ¼»¯Êı¾İ] Î´ÕÒµ½ example_doc.txt£¬Ìø¹ı¡£")
         return
     vs = get_vectorstore()
     if vs is not None:
-        print("[ç¤ºä¾‹æ•°æ®] å‘é‡åº“å·²å­˜åœ¨ï¼Œè·³è¿‡åˆå§‹åŒ–ã€‚")
+        print("[³õÊ¼»¯Êı¾İ] ÏòÁ¿¿âÒÑ´æÔÚ£¬Ìø¹ı³õÊ¼»¯¡£")
         return
-    print("[ç¤ºä¾‹æ•°æ®] æ­£åœ¨åˆå§‹åŒ–ç¤ºä¾‹æ•°æ®...")
+    print("[³õÊ¼»¯Êı¾İ] ÕıÔÚ³õÊ¼»¯Ê¾ÀıÊı¾İ...")
     with open(example_path, "r", encoding="utf-8") as f:
         text = f.read()
     docs = make_docs_with_source(text, "example_doc.txt")
@@ -155,52 +242,71 @@ def init_sample_data():
         persist_directory=PERSIST_DIR,
         collection_name="rag_documents",
     )
-    print(f"[ç¤ºä¾‹æ•°æ®] å·²å°† {len(docs)} ä¸ªæ–‡æœ¬å—å†™å…¥å‘é‡åº“ã€‚")
+    print(f"[³õÊ¼»¯Êı¾İ] ÒÑ½« {len(docs)} ¸öÎÄ±¾¿éĞ´ÈëÏòÁ¿¿â¡£")
 
 
 # ================================================================
-# è·¯ç”±ï¼šä¸»é¡µ
+# Â·ÓÉ£ºÖ÷Ò³
 # ================================================================
 @app.route("/")
 def index():
-    """æ¸²æŸ“é—®ç­”é¡µé¢"""
+    """äÖÈ¾ÎÊ´ğÖ÷Ò³Ãæ"""
     if "chat_history" not in session:
         session["chat_history"] = []
     return render_template("index.html")
 
 
 # ================================================================
-# è·¯ç”±ï¼šä¸Šä¼ æ–‡æ¡£
+# Â·ÓÉ£ºÉÏ´«ÎÄµµ£¨Ö§³Ö .txt / .md / **.pdf**£©
 # ================================================================
 @app.route("/api/upload", methods=["POST"])
 def upload_document():
     """
-    æ¥æ”¶ç”¨æˆ·ä¸Šä¼ çš„ txt/markdown æ–‡ä»¶ï¼Œåˆ‡åˆ†åå­˜å…¥å‘é‡åº“ã€‚
-    JSON å“åº”ï¼š{"status": "ok", "chunks": 12, "message": "..."}
+    ½ÓÊÕÓÃ»§ÉÏ´«µÄ txt / markdown / PDF ÎÄ¼ş£¬ÇĞ·Öºó´æÈëÏòÁ¿¿â¡£
+    JSON ÏìÓ¦£º{"status": "ok", "chunks": 12, "message": "..."}
     """
     embeddings = get_embeddings()
     if embeddings is None:
-        return jsonify({"status": "err", "message": "æœªé…ç½® API_KEYï¼Œè¯·å…ˆåœ¨ .env æ–‡ä»¶ä¸­é…ç½®ã€‚"}), 500
+        return jsonify({"status": "err", "message": "Î´ÅäÖÃ API_KEY£¬ÇëÏÈÔÚ .env ÎÄ¼şÖĞÅäÖÃ¡£"}), 500
 
     if "file" not in request.files:
-        return jsonify({"status": "err", "message": "è¯·é€‰æ‹©è¦ä¸Šä¼ çš„æ–‡ä»¶ã€‚"}), 400
+        return jsonify({"status": "err", "message": "ÇëÏÈÑ¡ÔñÒªÉÏ´«µÄÎÄ¼ş¡£"}), 400
 
     file = request.files["file"]
     if file.filename == "":
-        return jsonify({"status": "err", "message": "æ–‡ä»¶åä¸ºç©ºã€‚"}), 400
+        return jsonify({"status": "err", "message": "ÎÄ¼şÃûÎª¿Õ¡£"}), 400
 
     filename = file.filename
     ext = os.path.splitext(filename)[1].lower()
-    if ext not in [".txt", ".md"]:
-        return jsonify({"status": "err", "message": "ä»…æ”¯æŒ .txt æˆ– .md æ–‡ä»¶ã€‚"}), 400
+
+    # ---- Ö§³ÖµÄÎÄ¼ş¸ñÊ½ ----
+    if ext not in [".txt", ".md", ".pdf"]:
+        return jsonify({"status": "err", "message": "½öÖ§³Ö .txt¡¢.md »ò .pdf ÎÄ¼ş¡£"}), 400
 
     try:
         raw_bytes = file.read()
-        text = raw_bytes.decode("utf-8", errors="replace")
-        docs = make_docs_with_source(text, filename)
-        if not docs:
-            return jsonify({"status": "err", "message": "æ–‡ä»¶å†…å®¹ä¸ºç©ºæˆ–æ— æ³•è§£æã€‚"}), 400
+        page_map: dict[int, int] = {}   # chunk_index ¡ú page_number£¨PDF ÓÃ£©
 
+        # ---- ¸ù¾İÎÄ¼şÀàĞÍ½âÎöÎÄ±¾ ----
+        if ext == ".pdf":
+            text, page_map = extract_text_from_pdf(raw_bytes)
+        else:
+            # txt / md£ºÒÔ UTF-8 ½âÂë£¬²»¿É¼û×Ö·ûÓÃÌæ´ú·û
+            text = raw_bytes.decode("utf-8", errors="replace")
+
+        # ---- ±£´æÔ­Ê¼ÎÄ¼şµ½ data Ä¿Â¼£¨±¸·İÓÃ£©----
+        os.makedirs(DATA_DIR, exist_ok=True)
+        safe_filename = filename.replace("/", "_").replace("\\", "_")
+        backup_path = os.path.join(DATA_DIR, safe_filename)
+        with open(backup_path, "wb") as bf:
+            bf.write(raw_bytes)
+
+        # ---- ÇĞ·Ö²¢¸½¼ÓÔªÊı¾İ ----
+        docs = make_docs_with_source(text, filename, page_map=page_map)
+        if not docs:
+            return jsonify({"status": "err", "message": "ÎÄ¼şÄÚÈİÎª¿Õ»òÎŞ·¨½âÎö¡£"}), 400
+
+        # ---- Ğ´ÈëÏòÁ¿¿â ----
         vectorstore = get_vectorstore()
         if vectorstore is None:
             Chroma.from_documents(
@@ -216,39 +322,42 @@ def upload_document():
         return jsonify({
             "status": "ok",
             "chunks": len(docs),
-            "message": f"ã€Œ{filename}ã€å·²æˆåŠŸè§£æä¸º {len(docs)} ä¸ªç‰‡æ®µå¹¶å­˜å…¥å‘é‡åº“ã€‚",
+            "message": f"¡¸{filename}¡¹ÒÑ³É¹¦½âÎöÎª {len(docs)} ¸öÆ¬¶Î²¢´æÈëÏòÁ¿¿â¡£",
         })
 
+    except ValueError as ve:
+        # ÒÑÖªÒµÎñ´íÎó£¨Èç¼ÓÃÜ PDF£©£¬Ö±½Ó·µ»ØÓÑºÃÌáÊ¾
+        return jsonify({"status": "err", "message": str(ve)}), 400
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"status": "err", "message": f"å¤„ç†å¤±è´¥ï¼š{str(e)}"}), 500
+        return jsonify({"status": "err", "message": f"´¦ÀíÊ§°Ü£º{str(e)}"}), 500
 
 
 # ================================================================
-# è·¯ç”±ï¼šç²˜è´´æ–‡æœ¬
+# Â·ÓÉ£ºÕ³ÌùÎÄ±¾
 # ================================================================
 @app.route("/api/paste", methods=["POST"])
 def paste_text():
     """
-    æ¥æ”¶ç”¨æˆ·ç²˜è´´çš„æ–‡æœ¬ï¼Œåˆ‡åˆ†åå­˜å…¥å‘é‡åº“ã€‚
-    JSON è¯·æ±‚ä½“ï¼š{"text": "..."}
+    ½ÓÊÕÓÃ»§Õ³ÌùµÄÎÄ±¾£¬·ÖÆ¬ºó´æÈëÏòÁ¿¿â¡£
+    JSON ÇëÇóÌå£º{"text": "..."}
     """
     embeddings = get_embeddings()
     if embeddings is None:
-        return jsonify({"status": "err", "message": "æœªé…ç½® API_KEYï¼Œè¯·å…ˆåœ¨ .env æ–‡ä»¶ä¸­é…ç½®ã€‚"}), 500
+        return jsonify({"status": "err", "message": "Î´ÅäÖÃ API_KEY£¬ÇëÏÈÔÚ .env ÎÄ¼şÖĞÅäÖÃ¡£"}), 500
 
     data = request.get_json()
     if not data or "text" not in data:
-        return jsonify({"status": "err", "message": "è¯·æ±‚ä½“ç¼ºå°‘ text å­—æ®µã€‚"}), 400
+        return jsonify({"status": "err", "message": "ÇëÇóÌåÈ±ÉÙ text ×Ö¶Î¡£"}), 400
 
     text = data["text"].strip()
     if not text:
-        return jsonify({"status": "err", "message": "æ–‡æœ¬å†…å®¹ä¸ºç©ºã€‚"}), 400
+        return jsonify({"status": "err", "message": "ÎÄ±¾ÄÚÈİÎª¿Õ¡£"}), 400
 
     try:
-        docs = make_docs_with_source(text, "ç”¨æˆ·ç²˜è´´æ–‡æœ¬")
+        docs = make_docs_with_source(text, "ÓÃ»§Õ³ÌùÎÄ±¾")
         if not docs:
-            return jsonify({"status": "err", "message": "æ–‡æœ¬ä¸ºç©ºï¼Œæ— æ³•å¤„ç†ã€‚"}), 400
+            return jsonify({"status": "err", "message": "ÎÄ±¾Îª¿Õ£¬ÎŞ·¨´¦Àí¡£"}), 400
 
         vectorstore = get_vectorstore()
         if vectorstore is None:
@@ -265,25 +374,24 @@ def paste_text():
         return jsonify({
             "status": "ok",
             "chunks": len(docs),
-            "message": f"æ–‡æœ¬å·²æˆåŠŸè§£æä¸º {len(docs)} ä¸ªç‰‡æ®µå¹¶å­˜å…¥å‘é‡åº“ã€‚",
+            "message": f"ÎÄ±¾ÒÑ³É¹¦ÇĞ·ÖÎª {len(docs)} ¸öÆ¬¶Î²¢´æÈëÏòÁ¿¿â¡£",
         })
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"status": "err", "message": f"å¤„ç†å¤±è´¥ï¼š{str(e)}"}), 500
+        return jsonify({"status": "err", "message": f"´¦ÀíÊ§°Ü£º{str(e)}"}), 500
 
 
 # ================================================================
-# â˜… æµå¼é—®ç­”ï¼ˆServer-Sent Eventsï¼‰
+# Â·ÓÉ£ºÁ÷Ê½ÎÊ´ğ£¨Server-Sent Events£©
 # ================================================================
 @app.route("/api/chat-stream", methods=["POST"])
 def chat_stream():
     """
-    æµå¼é—®ç­”æ¥å£ï¼Œä½¿ç”¨ Server-Sent Events (SSE) é€å­—è¿”å›å›ç­”ã€‚
-
-    SSE æ•°æ®æ ¼å¼ï¼š
-      data: {"type": "token",    "content": "å­—"}
-      data: {"type": "sources",  "sources": [{"file": "...", "idx": 0, "text": "..."}]}
+    Á÷Ê½ÎÊ´ğ½Ó¿Ú£¬Ê¹ÓÃ Server-Sent Events (SSE) Öğ×Ö·µ»Ø»Ø´ğ¡£
+    SSE Êı¾İ¸ñÊ½£º
+      data: {"type": "token",    "content": "×Ö"}
+      data: {"type": "sources",  "sources": [{"file": "...", "idx": 0, "text": "...", "page": null}]}
       data: {"type": "done"}
       data: {"type": "error",    "message": "..."}
     """
@@ -292,7 +400,7 @@ def chat_stream():
 
     if llm is None or vectorstore is None:
         def _err():
-            yield f"data: {json.dumps({'type': 'error', 'message': 'æ¨¡å‹æˆ–å‘é‡åº“æœªå°±ç»ªï¼Œè¯·æ£€æŸ¥é…ç½®ã€‚'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Ä£ĞÍ»òÏòÁ¿¿âÎ´¾ÍĞ÷£¬Çë¼ì²éÅäÖÃ¡£'})}\n\n"
         return Response(_err(), mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
@@ -300,41 +408,46 @@ def chat_stream():
     question = data.get("question", "").strip()
     if not question:
         def _err2():
-            yield f"data: {json.dumps({'type': 'error', 'message': 'é—®é¢˜ä¸èƒ½ä¸ºç©ºã€‚'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': 'ÎÊÌâ²»ÄÜÎª¿Õ¡£'})}\n\n"
         return Response(_err2(), mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     try:
-        # ---- æ£€ç´¢ç›¸å…³ç‰‡æ®µ ----
+        # ---- ¼ìË÷Ïà¹ØÆ¬¶Î ----
         retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
         relevant_docs = retriever.invoke(question)
         context = "\n\n".join(d.page_content for d in relevant_docs)
 
-        # ---- æ„é€  Prompt ----
-        prompt = f"""ä½ æ˜¯ä¸€ä¸ªä¸“ä¸šã€å‹å¥½çš„ AI é—®ç­”åŠ©æ‰‹ã€‚è¯·åŸºäºä»¥ä¸‹å‚è€ƒèµ„æ–™å›ç­”ç”¨æˆ·é—®é¢˜ã€‚
-å¦‚æœå‚è€ƒèµ„æ–™ä¸è¶³ä»¥å›ç­”é—®é¢˜ï¼Œè¯·æ˜ç¡®è¯´æ˜"æ ¹æ®ç°æœ‰èµ„æ–™æ— æ³•å›ç­”è¯¥é—®é¢˜"ï¼Œ
-ä¸è¦ç¼–é€ ä¿¡æ¯ã€‚
-
---- å‚è€ƒèµ„æ–™ ---
+        # ---- ¹¹Ôì Prompt ----
+        prompt = f"""ÄãÊÇÒ»Î»×¨Òµ¡¢ÓÑÉÆµÄ AI ´ğÒÉÖúÊÖ¡£Çë»ùÓÚÒÔÏÂ²Î¿¼×ÊÁÏ»Ø¸´ÓÃ»§ÎÊÌâ¡£
+Èç¹û²Î¿¼×ÊÁÏ²»×ãÒÔ»Ø´ğÄ³¸öÎÊÌâ£¬ÇëÈçÊµËµÃ÷"¸ù¾İÏÖÓĞ×ÊÁÏÎŞ·¨»Ø´ğ¸ÃÎÊÌâ"£¬²»Òª±àÔìĞÅÏ¢¡£
+---
+²Î¿¼×ÊÁÏ£º
 {context}
---- å‚è€ƒèµ„æ–™ç»“æŸ ---
+---
 
-ç”¨æˆ·é—®é¢˜ï¼š{question}
+ÓÃ»§ÎÊÌâ£º{question}
 
-è¯·ç”¨ä¸­æ–‡å›ç­”ï¼Œç»“æ„æ¸…æ™°ï¼Œæ¡ç†åˆ†æ˜ï¼š"""
+ÇëÓÃÖĞÎÄ»Ø´ğ£¬½á¹û¼ò½à£¬ÌõÀíÇåÎú¡£"""
 
-        # ---- æ”¶é›†æ¥æºä¿¡æ¯ ----
+        # ---- ÊÕ¼¯À´Ô´ĞÅÏ¢£¨º¬¿ÉÑ¡Ò³Âë£©----
         sources = []
         for idx, doc in enumerate(relevant_docs):
-            label = doc.metadata.get("source", "æœªçŸ¥æ–‡æ¡£")
+            label = doc.metadata.get("source", "Î´ÖªÎÄµµ")
             snippet = doc.page_content.strip()
-            sources.append({"file": label, "idx": idx + 1, "text": snippet})
+            page_num = doc.metadata.get("page_number")  # PDF ²ÅÓĞ£¬None ±íÊ¾·Ç PDF
+            sources.append({
+                "file": label,
+                "idx": idx + 1,
+                "text": snippet,
+                "page": page_num,
+            })
 
-        # ---- æµå¼ç”Ÿæˆ ----
+        # ---- Á÷Ê½Éú³É ----
         def generate():
-            # å…ˆæ¨é€æ¥æºä¿¡æ¯
+            # ÏÈ·¢ËÍÀ´Ô´ĞÅÏ¢
             yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
-            # é€ token æµå¼æ¨é€å›ç­”
+            # Öğ token Á÷Ê½·µ»Ø»Ø´ğ
             for chunk in llm.stream(prompt):
                 token = chunk.content or ""
                 if token:
@@ -347,20 +460,20 @@ def chat_stream():
     except Exception as e:
         traceback.print_exc()
         def _err3():
-            yield f"data: {json.dumps({'type': 'error', 'message': f'ç”Ÿæˆå›ç­”æ—¶å‡ºé”™ï¼š{str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Éú³É»Ø´ğÊ±³ö´í£º{str(e)}'})}\n\n"
         return Response(_err3(), mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ================================================================
-# è·¯ç”±ï¼šé—®ç­”ï¼ˆéæµå¼ï¼Œä¿æŒå…¼å®¹ï¼‰
+# Â·ÓÉ£ºÎÊ´ğ£¨·ÇÁ÷Ê½£¬¼æÈİ¾É½Ó¿Ú£©
 # ================================================================
 @app.route("/api/chat", methods=["POST"])
 def chat():
     """
-    ç”¨æˆ·æé—® â†’ æ£€ç´¢å‘é‡åº“ â†’ æ„é€  prompt â†’ è°ƒç”¨ LLM ç”Ÿæˆå›ç­”
-    JSON è¯·æ±‚ä½“ï¼š{"question": "..."}
-    å“åº”ï¼š{"status": "ok", "answer": "...", "sources": [...]}
+    ÓÃ»§ÌáÎÊ ¡ú ¼ìË÷Ïà¹ØÎÄµµ ¡ú ¹¹Ôì prompt ¡ú µ÷ÓÃ LLM Éú³É»Ø´ğ
+    JSON ÇëÇóÌå£º{"question": "..."}
+    ÏìÓ¦£º{"status": "ok", "answer": "...", "sources": [...]}
     """
     llm = get_llm()
     vectorstore = get_vectorstore()
@@ -368,45 +481,50 @@ def chat():
     if llm is None or vectorstore is None:
         return jsonify({
             "status": "err",
-            "answer": "æ¨¡å‹æˆ–å‘é‡åº“æœªå°±ç»ªã€‚è¯·ç¡®ä¿ï¼š\nâ‘  å·²é…ç½® .env æ–‡ä»¶ä¸­çš„ API_KEY\nâ‘¡ å·²ä¸Šä¼ æ–‡æ¡£æˆ–å†…ç½®ç¤ºä¾‹æ•°æ®å·²åˆå§‹åŒ–",
+            "answer": "Ä£ĞÍ»òÏòÁ¿¿âÎ´¾ÍĞ÷¡£\n¿ÉÄÜÔ­Òò£º\n1. Î´ÔÚ .env ÎÄ¼şÖĞÅäÖÃ API_KEY\n2. ÒÑÉÏ´«ÎÄµµ»òÄÚÖÃÊ¾ÀıÊı¾İÎ´³õÊ¼»¯",
         }), 500
 
     data = request.get_json()
     question = (data or {}).get("question", "").strip()
     if not question:
-        return jsonify({"status": "err", "answer": "é—®é¢˜ä¸èƒ½ä¸ºç©ºã€‚"}), 400
+        return jsonify({"status": "err", "answer": "ÎÊÌâ²»ÄÜÎª¿Õ¡£"}), 400
 
     try:
-        # ---- æ£€ç´¢ç›¸å…³æ–‡æ¡£ç‰‡æ®µï¼ˆtop-k = 3ï¼‰----
+        # ---- ¼ìË÷Ïà¹ØÎÄµµ£¨top-k = 3£©----
         retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
         relevant_docs = retriever.invoke(question)
         context = "\n\n".join(d.page_content for d in relevant_docs)
 
-        # ---- æ„é€  Promptï¼ˆä¸­æ–‡æç¤ºè¯ï¼‰----
-        prompt = f"""ä½ æ˜¯ä¸€ä¸ªä¸“ä¸šã€å‹å¥½çš„ AI é—®ç­”åŠ©æ‰‹ã€‚è¯·åŸºäºä»¥ä¸‹å‚è€ƒèµ„æ–™å›ç­”ç”¨æˆ·é—®é¢˜ã€‚
-å¦‚æœå‚è€ƒèµ„æ–™ä¸è¶³ä»¥å›ç­”é—®é¢˜ï¼Œè¯·æ˜ç¡®è¯´æ˜"æ ¹æ®ç°æœ‰èµ„æ–™æ— æ³•å›ç­”è¯¥é—®é¢˜"ï¼Œ
-ä¸è¦ç¼–é€ ä¿¡æ¯ã€‚
-
---- å‚è€ƒèµ„æ–™ ---
+        # ---- ¹¹Ôì Prompt£¨ÖĞÎÄÌáÊ¾´Ê£©----
+        prompt = f"""ÄãÊÇÒ»Î»×¨Òµ¡¢ÓÑÉÆµÄ AI ´ğÒÉÖúÊÖ¡£Çë»ùÓÚÒÔÏÂ²Î¿¼×ÊÁÏ»Ø¸´ÓÃ»§ÎÊÌâ¡£
+Èç¹û²Î¿¼×ÊÁÏ²»×ãÒÔ»Ø´ğÄ³¸öÎÊÌâ£¬ÇëÈçÊµËµÃ÷"¸ù¾İÏÖÓĞ×ÊÁÏÎŞ·¨»Ø´ğ¸ÃÎÊÌâ"£¬²»Òª±àÔìĞÅÏ¢¡£
+---
+²Î¿¼×ÊÁÏ£º
 {context}
---- å‚è€ƒèµ„æ–™ç»“æŸ ---
+---
 
-ç”¨æˆ·é—®é¢˜ï¼š{question}
+ÓÃ»§ÎÊÌâ£º{question}
 
-è¯·ç”¨ä¸­æ–‡å›ç­”ï¼Œç»“æ„æ¸…æ™°ï¼Œæ¡ç†åˆ†æ˜ï¼š"""
+ÇëÓÃÖĞÎÄ»Ø´ğ£¬½á¹û¼ò½à£¬ÌõÀíÇåÎú¡£"""
 
-        # ---- è°ƒç”¨ LLM ----
+        # ---- µ÷ÓÃ LLM ----
         response = llm.invoke(prompt)
         answer = response.content.strip()
 
-        # ---- æ”¶é›†æ¥æº ----
+        # ---- ÊÕ¼¯À´Ô´£¨º¬¿ÉÑ¡Ò³Âë£©----
         sources = []
         for idx, doc in enumerate(relevant_docs):
-            label = doc.metadata.get("source", "æœªçŸ¥æ–‡æ¡£")
+            label = doc.metadata.get("source", "Î´ÖªÎÄµµ")
             snippet = doc.page_content.strip()
-            sources.append({"file": label, "idx": idx + 1, "text": snippet})
+            page_num = doc.metadata.get("page_number")
+            sources.append({
+                "file": label,
+                "idx": idx + 1,
+                "text": snippet,
+                "page": page_num,
+            })
 
-        # ---- å­˜å…¥å¯¹è¯å†å² ----
+        # ---- ´æÈë»á»°ÀúÊ· ----
         chat_history = session.get("chat_history", [])
         chat_history.append({
             "role": "user",
@@ -424,30 +542,30 @@ def chat():
 
     except Exception e:
         traceback.print_exc()
-        return jsonify({"status": "err", "answer": f"ç”Ÿæˆå›ç­”æ—¶å‡ºé”™ï¼š{str(e)}"}), 500
+        return jsonify({"status": "err", "answer": f"Éú³É»Ø´ğÊ±³ö´í£º{str(e)}"}), 500
 
 
 # ================================================================
-# â˜… æ–‡æ¡£ç®¡ç† - è·å–æ–‡æ¡£åˆ—è¡¨
+# ÎÄµµ¹ÜÀí - »ñÈ¡ÎÄµµÁĞ±í
 # ================================================================
 @app.route("/api/documents", methods=["GET"])
 def list_documents():
     """
-    è¿”å›å‘é‡åº“ä¸­æ‰€æœ‰æ–‡æ¡£çš„ç»Ÿè®¡ä¿¡æ¯ï¼ˆæŒ‰æ¥æºæ–‡ä»¶åå»é‡èšåˆï¼‰ã€‚
+    ·µ»ØÏòÁ¿¿âÖĞËùÓĞÎÄµµµÄÍ³¼ÆĞÅÏ¢£¨°´À´Ô´ÎÄ¼şÃûÈ¥ÖØ£©¡£
     """
     try:
         vs = get_vectorstore()
         if vs is None:
             return jsonify({"status": "ok", "documents": []})
 
-        # ç›´æ¥è®¿é—®åº•å±‚ collection è·å–å»é‡å…ƒæ•°æ®
+        # Ö±½Ó·ÃÎÊµ×²ã collection »ñÈ¡ÖØ¸´Êı¾İ
         collection = vs._collection
         result = collection.get(include=["metadatas"])
 
         doc_stats = {}  # filename -> chunk count
         for meta in (result.get("metadatas") or []):
             if isinstance(meta, dict):
-                src = meta.get("source", "æœªçŸ¥æ–‡æ¡£")
+                src = meta.get("source", "Î´ÖªÎÄµµ")
                 doc_stats[src] = doc_stats.get(src, 0) + 1
 
         documents = [
@@ -462,74 +580,74 @@ def list_documents():
 
 
 # ================================================================
-# â˜… æ–‡æ¡£ç®¡ç† - åˆ é™¤æŒ‡å®šæ–‡æ¡£
+# ÎÄµµ¹ÜÀí - É¾³ıÖ¸¶¨ÎÄµµ
 # ================================================================
 @app.route("/api/documents", methods=["DELETE"])
 def delete_document():
     """
-    ä»å‘é‡åº“ä¸­åˆ é™¤æŸä¸ªæ–‡æ¡£çš„æ‰€æœ‰ç‰‡æ®µã€‚
-    JSON è¯·æ±‚ä½“ï¼š{"filename": "è¦åˆ é™¤çš„æ–‡ä»¶å"}
-    example_doc.txt å—ä¿æŠ¤ï¼Œä¸å…è®¸åˆ é™¤ã€‚
+    ´ÓÏòÁ¿¿âÖĞÉ¾³ıÄ³ÎÄµµµÄËùÓĞÆ¬¶Î¡£
+    JSON ÇëÇóÌå£º{"filename": "ÒªÉ¾³ıµÄÎÄ¼şÃû"}
+    example_doc.txt ÄÚÖÃÊ¾Àı²»¿ÉÉ¾³ı¡£
     """
     PROTECTED = {"example_doc.txt", "data/example_doc.txt"}
 
     data = request.get_json() or {}
     filename = data.get("filename", "").strip()
     if not filename:
-        return jsonify({"status": "err", "message": "è¯·æä¾›è¦åˆ é™¤çš„æ–‡ä»¶åã€‚"}), 400
+        return jsonify({"status": "err", "message": "ÇëÖ¸¶¨ÒªÉ¾³ıµÄÎÄ¼şÃû¡£"}), 400
     if filename in PROTECTED:
-        return jsonify({"status": "err", "message": "å†…ç½®ç¤ºä¾‹æ–‡æ¡£ä¸å¯åˆ é™¤ã€‚"}), 403
+        return jsonify({"status": "err", "message": "ÄÚÖÃÊ¾ÀıÎÄµµ²»¿ÉÉ¾³ı¡£"}), 403
 
     try:
         vs = get_vectorstore()
         if vs is None:
-            return jsonify({"status": "err", "message": "å‘é‡åº“ä¸ºç©ºï¼Œæ— æ³•åˆ é™¤ã€‚"}), 400
+            return jsonify({"status": "err", "message": "ÏòÁ¿¿âÎª¿Õ£¬ÎŞ·¨É¾³ı¡£"}), 400
 
         collection = vs._collection
         result = collection.get(where={"source": filename}, include=[])
         ids_to_delete = result.get("ids", [])
 
         if not ids_to_delete:
-            return jsonify({"status": "ok", "message": f"ã€Œ{filename}ã€æœªæ‰¾åˆ°æˆ–å·²è¢«åˆ é™¤ã€‚"})
+            return jsonify({"status": "ok", "message": f"¡¸{filename}¡¹Î´ÕÒµ½»òÒÑ±»É¾³ı¡£"})
 
         collection.delete(ids=ids_to_delete)
         vs.persist()
 
         return jsonify({
             "status": "ok",
-            "message": f"ã€Œ{filename}ã€å·²åˆ é™¤ï¼Œå…±ç§»é™¤ {len(ids_to_delete)} ä¸ªç‰‡æ®µã€‚",
+            "message": f"¡¸{filename}¡¹ÒÑÉ¾³ı£¬¹²ÒÆ³ı {len(ids_to_delete)} ¸öÆ¬¶Î¡£",
         })
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"status": "err", "message": f"åˆ é™¤å¤±è´¥ï¼š{str(e)}"}), 500
+        return jsonify({"status": "err", "message": f"É¾³ıÊ§°Ü£º{str(e)}"}), 500
 
 
 # ================================================================
-# è·¯ç”±ï¼šè·å–å¯¹è¯å†å²
+# Â·ÓÉ£º»ñÈ¡»á»°ÀúÊ·
 # ================================================================
 @app.route("/api/history", methods=["GET"])
 def get_history():
-    """è¿”å›å½“å‰ session çš„å¯¹è¯å†å²"""
+    """·µ»Øµ±Ç° session µÄ¶Ô»°ÀúÊ·"""
     return jsonify({"history": session.get("chat_history", [])})
 
 
 # ================================================================
-# è·¯ç”±ï¼šæ¸…ç©ºå¯¹è¯å†å²
+# Â·ÓÉ£ºÇå¿Õ»á»°ÀúÊ·
 # ================================================================
 @app.route("/api/clear", methods=["POST"])
 def clear_history():
-    """æ¸…ç©ºå½“å‰ session çš„å¯¹è¯å†å²"""
+    """Çå¿Õµ±Ç° session µÄ¶Ô»°ÀúÊ·"""
     session["chat_history"] = []
-    return jsonify({"status": "ok", "message": "å¯¹è¯å†å²å·²æ¸…ç©ºã€‚"})
+    return jsonify({"status": "ok", "message": "¶Ô»°ÀúÊ·ÒÑÇå¿Õ¡£"})
 
 
 # ================================================================
-# è·¯ç”±ï¼šè·å–å‘é‡åº“çŠ¶æ€
+# Â·ÓÉ£º»ñÈ¡ÏòÁ¿¿â×´Ì¬
 # ================================================================
 @app.route("/api/status", methods=["GET"])
 def get_status():
-    """è¿”å›å‘é‡åº“å’Œæ¨¡å‹é…ç½®çŠ¶æ€"""
+    """·µ»ØÏòÁ¿¿âºÍÄ£ĞÍÅäÖÃ×´Ì¬"""
     embeddings_ready = get_embeddings() is not None
     llm_ready = get_llm() is not None
     vs = get_vectorstore()
@@ -544,20 +662,20 @@ def get_status():
 
 
 # ================================================================
-# å¯åŠ¨
+# Æô¶¯
 # ================================================================
 if __name__ == "__main__":
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(PERSIST_DIR, exist_ok=True)
 
-    # åˆå§‹åŒ–ç¤ºä¾‹æ•°æ®ï¼ˆä»…é¦–æ¬¡ã€ä¸” API_KEY å¯ç”¨æ—¶ï¼‰
+    # ³õÊ¼»¯Ê¾ÀıÊı¾İ£¨Ê×´ÎÇÒ API_KEY ¿ÉÓÃÊ±£©
     init_sample_data()
 
     print("\n" + "=" * 50)
-    print("  RAG Demo å¯åŠ¨ä¸­...")
-    print(f"  è®¿é—®åœ°å€ï¼šhttp://127.0.0.1:5000")
-    print(f"  æ•°æ®ç›®å½•ï¼š{DATA_DIR}")
-    print(f"  å‘é‡åº“ç›®å½•ï¼š{PERSIST_DIR}")
+    print("  RAG Demo Æô¶¯ÖĞ...")
+    print(f"  ·ÃÎÊµØÖ·£ºhttp://127.0.0.1:5000")
+    print(f"  Êı¾İÄ¿Â¼£º{DATA_DIR}")
+    print(f"  ÏòÁ¿¿âÄ¿Â¼£º{PERSIST_DIR}")
     print("=" * 50 + "\n")
 
     app.run(host="0.0.0.0", port=5000, debug=True)
