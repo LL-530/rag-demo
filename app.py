@@ -143,6 +143,56 @@ def make_docs_with_source(raw_text: str, filename: str,
     return docs
 
 
+
+# ================================================================
+# 新增：多轮对话上下文构建
+# ================================================================
+def build_chat_context(sess, max_chars: int = 1000) -> str:
+    """
+    从 Flask session 中提取最近 5 轮对话（user + assistant 各算 1 轮，
+    即最多 10 条消息），格式化为 prompt 前缀。
+
+    设计说明：
+      - 为什么要限制 max_chars（默认 1000）？
+        prompt 越长，消耗的 token 越多，响应越慢、费用越高。
+        限制在约 1000 字符（~250-400 token）可以在保证上下文连贯的同时
+        控制成本，避免长对话拖慢响应。
+
+    返回：
+      格式化后的上下文字符串；若无历史对话则返回空字符串。
+    """
+    history = sess.get("chat_history", [])
+    if not history:
+        return ""
+
+    # 取最近 10 条（5 轮 user + assistant）
+    recent = history[-10:]
+
+    # 格式化为纯文本：用户：xxx / 助手：xxx
+    lines: list[str] = []
+    for msg in recent:
+        role = "用户" if msg["role"] == "user" else "助手"
+        lines.append(f"{role}：{msg['content']}")
+
+    context_text = "\n".join(lines)
+
+    # 字符数超限时，从最早的对话开始裁剪
+    if len(context_text) > max_chars:
+        while len(context_text) > max_chars and len(lines) > 1:
+            lines.pop(0)
+            context_text = "\n".join(lines)
+
+    if not lines:
+        return ""
+
+    return (
+        "以下是之前的对话记录：\n"
+        + context_text
+        + "\n\n"
+        + "现在回答用户的新问题："
+    )
+
+
 # ================================================================
 # 新增：从 PDF 文件中提取文本
 # ================================================================
@@ -418,8 +468,22 @@ def chat_stream():
         relevant_docs = retriever.invoke(question)
         context = "\n\n".join(d.page_content for d in relevant_docs)
 
-        # ---- 构造 Prompt ----
-        prompt = f"""你是一位专业、友善的 AI 答疑助手。请基于以下参考资料回复用户问题。
+        # ---- 构造 Prompt（含多轮对话上下文）----
+        # 从 session 中获取历史对话，嵌入到 prompt 前缀中
+        chat_ctx = build_chat_context(session)
+
+        if chat_ctx:
+            # 有历史对话：上下文 + 参考资料 + 用户新问题
+            prompt = f"""{chat_ctx}
+---参考资料：---
+{context}
+---
+请基于以上对话上下文和参考资料回答用户的新问题。
+如果参考资料不足以回答，请如实说明，不要编造信息。
+请用中文回答，结果简洁，条理清晰。"""
+        else:
+            # 无历史对话：保持原有 prompt 不变
+            prompt = f"""你是一位专业、友善的 AI 答疑助手。请基于以下参考资料回复用户问题。
 如果参考资料不足以回答某个问题，请如实说明"根据现有资料无法回答该问题"，不要编造信息。
 ---
 参考资料：
@@ -495,8 +559,22 @@ def chat():
         relevant_docs = retriever.invoke(question)
         context = "\n\n".join(d.page_content for d in relevant_docs)
 
-        # ---- 构造 Prompt（中文提示词）----
-        prompt = f"""你是一位专业、友善的 AI 答疑助手。请基于以下参考资料回复用户问题。
+        # ---- 构造 Prompt（含多轮对话上下文）----
+        # 从 session 中获取历史对话，嵌入到 prompt 前缀中
+        chat_ctx = build_chat_context(session)
+
+        if chat_ctx:
+            # 有历史对话：上下文 + 参考资料 + 用户新问题
+            prompt = f"""{chat_ctx}
+---参考资料：---
+{context}
+---
+请基于以上对话上下文和参考资料回答用户的新问题。
+如果参考资料不足以回答，请如实说明，不要编造信息。
+请用中文回答，结果简洁，条理清晰。"""
+        else:
+            # 无历史对话：保持原有 prompt 不变
+            prompt = f"""你是一位专业、友善的 AI 答疑助手。请基于以下参考资料回复用户问题。
 如果参考资料不足以回答某个问题，请如实说明"根据现有资料无法回答该问题"，不要编造信息。
 ---
 参考资料：
@@ -540,7 +618,7 @@ def chat():
 
         return jsonify({"status": "ok", "answer": answer, "sources": sources})
 
-    except Exception e:
+    except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "err", "answer": f"生成回答时出错：{str(e)}"}), 500
 
@@ -624,12 +702,30 @@ def delete_document():
 
 
 # ================================================================
-# 路由：获取会话历史
+# 路由：获取 / 追加会话历史
 # ================================================================
-@app.route("/api/history", methods=["GET"])
-def get_history():
-    """返回当前 session 的对话历史"""
-    return jsonify({"history": session.get("chat_history", [])})
+@app.route("/api/history", methods=["GET", "POST"])
+def history_handler():
+    """
+    GET  : 返回当前 session 的对话历史
+    POST : 将新的 user/assistant 对话追加到 session（供流式接口前端调用）
+    """
+    if request.method == "GET":
+        return jsonify({"history": session.get("chat_history", [])})
+
+    # POST：追加对话
+    data = request.get_json() or {}
+    question = (data.get("question") or "").strip()
+    answer   = (data.get("answer")   or "").strip()
+    if not question or not answer:
+        return jsonify({"status": "err", "message": "缺少 question 或 answer 字段。"}), 400
+
+    chat_history = session.get("chat_history", [])
+    now = __import__("datetime").datetime.now().strftime("%H:%M")
+    chat_history.append({"role": "user",      "content": question, "time": now})
+    chat_history.append({"role": "assistant", "content": answer,   "time": now})
+    session["chat_history"] = chat_history[-20:]
+    return jsonify({"status": "ok"})
 
 
 # ================================================================
