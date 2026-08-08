@@ -1,8 +1,8 @@
-﻿/* ================================================================
+/* ================================================================
    RAG Demo - CSS
    ================================================================ */
 
-/* ---- Reset & Base ----
+/* ---- Reset & Base ---- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -160,7 +160,16 @@ textarea:focus { outline: 2px solid var(--accent); border-color: var(--accent); 
 .msg-bubble.user .msg-body { background: var(--accent); color: #fff; }
 .msg-role { font-size: .72rem; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
 .msg-bubble.user .msg-role { color: rgba(255,255,255,.7); }
-.msg-text { font-size: .9rem; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.msg-text { font-size: .9rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+
+/* ---- Streaming cursor ---- */
+.stream-cursor::after {
+  content: '▋';
+  animation: blink .8s step-start infinite;
+  color: var(--accent);
+  margin-left: 1px;
+}
+@keyframes blink { 50% { opacity: 0; } }
 
 /* ---- Input Bar ---- */
 .input-bar {
@@ -203,7 +212,94 @@ textarea:focus { outline: 2px solid var(--accent); border-color: var(--accent); 
 .toast-error   { background: #fef0ef; color: #b71c1c; border-left: 4px solid var(--red); }
 .toast-info    { background: #eef3fc; color: #1e5fcf; border-left: 4px solid var(--accent); }
 
-/* ---- Responsive ----
+/* ================================================================
+   ★ 文档管理面板
+   ================================================================ */
+.doc-list {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.doc-empty {
+  color: #6a829a; font-size: .8rem; text-align: center;
+  padding: 8px 0; line-height: 1.5;
+}
+.doc-item {
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+  transition: border-color .15s, background .15s;
+}
+.doc-item:hover {
+  border-color: rgba(79,142,247,.3);
+  background: rgba(79,142,247,.06);
+}
+.doc-info {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.doc-name {
+  font-size: .82rem; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.doc-chunks {
+  font-size: .7rem; color: #6a829a;
+}
+.btn-delete {
+  background: rgba(255,59,48,.12);
+  color: #ff6b63;
+  width: auto; padding: 4px 10px;
+  font-size: .75rem; border-radius: 6px;
+  flex-shrink: 0;
+}
+.btn-delete:hover {
+  background: rgba(255,59,48,.25);
+}
+
+/* ================================================================
+   ★ 引用来源展示区块
+   ================================================================ */
+.sources-block {
+  margin-top: 10px;
+  border-top: 1px solid rgba(79,142,247,.15);
+  padding-top: 8px;
+}
+.sources-header {
+  display: flex; align-items: center; gap: 6px;
+  font-size: .78rem; font-weight: 600; color: var(--accent);
+  cursor: pointer; user-select: none;
+  padding: 4px 0;
+  transition: color .15s;
+}
+.sources-header:hover { color: var(--accent-h); }
+.sources-icon { font-size: .9rem; }
+.sources-toggle { margin-left: auto; font-size: .75rem; color: var(--muted); }
+
+.sources-list {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 8px;
+}
+.source-item {
+  background: #f0f5ff;
+  border: 1px solid #c8dbf8;
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.source-title {
+  font-size: .78rem; font-weight: 600; color: #1e5fcf;
+  margin-bottom: 4px;
+}
+.source-snippet {
+  font-size: .78rem; color: var(--muted);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---- Responsive ---- */
 @media (max-width: 768px) {
   .app { flex-direction: column; }
   .sidebar { width: 100%; min-width: auto; max-height: 50vh; }
