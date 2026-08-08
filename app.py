@@ -88,6 +88,7 @@ def get_embeddings():
     return OpenAIEmbeddings(
         api_key=API_KEY,
         base_url=BASE_URL,
+        model="step-1-8k",
     )
 
 
@@ -558,8 +559,9 @@ def chat_stream():
 
     except Exception as e:
         traceback.print_exc()
+        msg = f"生成回答时出错：{str(e)}"
         def _err3():
-            yield f"data: {json.dumps({'type': 'error', 'message': f'生成回答时出错：{str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
         return Response(_err3(), mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
