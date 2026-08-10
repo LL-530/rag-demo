@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 # 安装系统依赖（chromadb、某些依赖可能需要编译工具）
-RUN apt-get update --no-install-recommends && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       build-essential \
       curl \

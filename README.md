@@ -35,6 +35,12 @@ pip install -r requirements.txt
 
 ### 2. 配置 API Key
 
+**方式一：通过 Web 页面配置（推荐）**
+
+启动后打开 http://127.0.0.1:5000，在左侧「设置」面板中直接填写 API Key、接口地址和模型，保存即可生效，无需重启。
+
+**方式二：通过 .env 文件配置**
+
 ```bash
 # 复制环境变量示例
 copy .env.example .env
@@ -43,14 +49,22 @@ copy .env.example .env
 打开 `.env`，填入你的 API Key 和 Base URL：
 
 ```ini
-API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-BASE_URL=https://api.stepfun.com/v1
+API_KEY=sk-your-api-key-here
+BASE_URL=https://api.openai.com/v1
 ```
 
-> **配置说明**
+> **支持的模型**
 >
-> - **使用 OpenAI 官方接口**：只需填写 `API_KEY`，`BASE_URL` 保持默认
-> - **使用第三方中转服务**（DeepSeek / OneAPI / OpenRouter 等）：将 `BASE_URL` 改为对应服务的 API 地址，如 `https://api.deepseek.com/v1`
+> 内置预设：`gpt-3.5-turbo` / `gpt-4o` / `deepseek-chat` / `qwen-turbo` / `glm-4`
+>
+> 也可以在下拉框中选择「自定义...」，输入任意兼容 OpenAI 接口的模型名称（如 `step-2-16k`、`deepseek-reasoner` 等）。
+>
+> 常见接口地址：
+> - OpenAI: `https://api.openai.com/v1`
+> - DeepSeek: `https://api.deepseek.com/v1`
+> - StepFun: `https://api.stepfun.com/v1`
+> - 硅基流动: `https://api.siliconflow.cn/v1`
+> - 智谱: `https://open.bigmodel.cn/api/paas/v4`
 
 ### 3. 启动服务
 
@@ -122,6 +136,9 @@ rag-demo/
 ---
 
 ## 💡 常见问题
+
+### Q: 如何更换模型？
+A: 在左侧「设置」面板中，下拉选择预设模型（GPT-4o / DeepSeek / Qwen / GLM-4），或选择「自定义...」输入任意兼容 OpenAI 接口的模型名称。保存后立即生效，无需重启。
 
 ### Q: 启动时报错 `No module named 'xxx'`
 A: 运行 `pip install -r requirements.txt` 安装依赖，建议 Python 版本 ≥ 3.10。

@@ -66,14 +66,15 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 # ================================================================
 def get_llm():
     """返回 ChatOpenAI 实例，如果未配置 API_KEY 则返回 None"""
-    if not API_KEY:
+    effective_key = APP_CONFIG.get("api_key", "") or API_KEY
+    if not effective_key:
         return None
     model_name = APP_CONFIG.get("model_name", "gpt-3.5-turbo")
     temperature = APP_CONFIG.get("temperature", 0.3)
     return ChatOpenAI(
         model=model_name,
         temperature=temperature,
-        api_key=API_KEY,
+        api_key=effective_key,
         base_url=BASE_URL,
     )
 
@@ -83,10 +84,11 @@ def get_llm():
 # ================================================================
 def get_embeddings():
     """返回 OpenAIEmbeddings 实例，未配置时返回 None"""
-    if not API_KEY:
+    effective_key = APP_CONFIG.get("api_key", "") or API_KEY
+    if not effective_key:
         return None
     return OpenAIEmbeddings(
-        api_key=API_KEY,
+        api_key=effective_key,
         base_url=BASE_URL,
         model="step-1-8k",
     )
@@ -329,6 +331,8 @@ def api_settings():
             cfg[k] = data[k]
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+    global APP_CONFIG
+    APP_CONFIG = _load_config()
     return jsonify({"status": "ok"})
 
 # ================================================================
